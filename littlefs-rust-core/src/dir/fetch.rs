@@ -317,15 +317,13 @@ pub fn lfs_dir_fetchmatch(
     _ftag: lfs_tag_t,
     _id: *mut u16,
     _cb: Option<
-        unsafe extern "C" fn(
+        &dyn Fn(
             &crate::fs::Lfs,
             &mut crate::fs::LfsCaches,
-            *mut core::ffi::c_void,
             lfs_tag_t,
-            *const core::ffi::c_void,
+            &crate::tag::lfs_diskoff,
         ) -> i32,
     >,
-    _data: *mut core::ffi::c_void,
 ) -> lfs_stag_t {
     // Per lfs.c enum: LFS_CMP_EQ=0, LFS_CMP_LT=1, LFS_CMP_GT=2
     const LFS_CMP_EQ: i32 = 0;
@@ -587,13 +585,7 @@ pub fn lfs_dir_fetchmatch(
                             block: dir.pair[0],
                             off: off + 4,
                         };
-                        let res = cb(
-                            lfs,
-                            caches,
-                            _data,
-                            tag,
-                            &diskoff as *const _ as *const core::ffi::c_void,
-                        );
+                        let res = cb(lfs, caches, tag, &diskoff);
                         if res < 0 {
                             if res == LFS_ERR_CORRUPT {
                                 break;
@@ -724,7 +716,6 @@ pub fn lfs_dir_fetch(
         0xffff_ffff,
         core::ptr::null_mut(),
         None,
-        core::ptr::null_mut(),
     );
     if res < 0 {
         res

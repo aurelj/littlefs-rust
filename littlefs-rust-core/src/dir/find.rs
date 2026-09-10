@@ -18,7 +18,7 @@ const LFS_CMP_GT: i32 = 2;
 
 /// Per lfs.c struct lfs_dir_find_match (lines 1447-1475)
 #[repr(C)]
-pub struct LfsDirFindMatch {
+pub(crate) struct LfsDirFindMatch {
     pub name: *const u8,
     pub size: lfs_size_t,
 }
@@ -58,43 +58,35 @@ pub struct LfsDirFindMatch {
 /// }
 ///
 /// ```
-pub unsafe extern "C" fn lfs_dir_find_match(
+pub(crate) fn lfs_dir_find_match(
     lfs: &Lfs,
     caches: &mut crate::fs::LfsCaches,
-    data: *mut core::ffi::c_void,
+    name: &LfsDirFindMatch,
     tag: lfs_tag_t,
-    buffer: *const core::ffi::c_void,
+    disk: &lfs_diskoff,
 ) -> i32 {
-    if data.is_null() || buffer.is_null() {
-        return LFS_CMP_LT;
+    let diff = lfs_min(name.size, lfs_tag_size(tag));
+    let res = lfs_bd_cmp(
+        lfs,
+        None,
+        &mut caches.rcache,
+        diff,
+        disk.block,
+        disk.off,
+        name.name,
+        diff,
+    );
+    if res != LFS_CMP_EQ {
+        return res;
     }
-    unsafe {
-        let name = &*(data as *const LfsDirFindMatch);
-        let disk = &*(buffer as *const lfs_diskoff);
-
-        let diff = lfs_min(name.size, lfs_tag_size(tag));
-        let res = lfs_bd_cmp(
-            lfs,
-            None,
-            &mut caches.rcache,
-            diff,
-            disk.block,
-            disk.off,
-            name.name,
-            diff,
-        );
-        if res != LFS_CMP_EQ {
-            return res;
-        }
-        if name.size != lfs_tag_size(tag) {
-            return if name.size < lfs_tag_size(tag) {
-                LFS_CMP_LT
-            } else {
-                LFS_CMP_GT
-            };
-        }
-        LFS_CMP_EQ
+    if name.size != lfs_tag_size(tag) {
+        return if name.size < lfs_tag_size(tag) {
+            LFS_CMP_LT
+        } else {
+            LFS_CMP_GT
+        };
     }
+    LFS_CMP_EQ
 }
 
 /// Per lfs.c lfs_dir_find (lines 1483-1590)
@@ -210,7 +202,7 @@ pub unsafe extern "C" fn lfs_dir_find_match(
 ///     }
 /// }
 /// ```
-pub fn lfs_dir_find(
+pub(crate) fn lfs_dir_find(
     lfs: &mut Lfs,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
@@ -361,8 +353,9 @@ pub fn lfs_dir_find(
                     lfs_mktag(0x780, 0, 0),
                     lfs_mktag(LFS_TYPE_NAME, 0, namelen),
                     id,
-                    Some(lfs_dir_find_match),
-                    &mut match_data as *mut _ as *mut core::ffi::c_void,
+                    Some(&|lfs, caches, tag, buffer| {
+                        lfs_dir_find_match(lfs, caches, &match_data, tag, buffer)
+                    }),
                 );
                 if tag < 0 {
                     return tag;
