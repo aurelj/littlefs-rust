@@ -24,7 +24,8 @@ use crate::types::{lfs_block_t, lfs_size_t, lfs_ssize_t};
 /// }
 /// ```
 pub fn lfs_stat_(
-    lfs: *mut super::lfs::Lfs,
+    lfs: &mut super::lfs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     info: *mut crate::lfs_info::LfsInfo,
 ) -> i32 {
@@ -33,14 +34,14 @@ pub fn lfs_stat_(
     use crate::lfs_type::lfs_type::LFS_TYPE_DIR;
     use crate::tag::{lfs_tag_id, lfs_tag_type3};
 
-    if lfs.is_null() || path.is_null() || info.is_null() {
+    if path.is_null() || info.is_null() {
         return crate::error::LFS_ERR_INVAL;
     }
     unsafe {
         let mut cwd = core::mem::zeroed::<crate::dir::LfsMdir>();
         let mut path_ptr = path;
 
-        let tag = lfs_dir_find(lfs, &mut cwd, &mut path_ptr, core::ptr::null_mut());
+        let tag = lfs_dir_find(lfs, caches, &mut cwd, &mut path_ptr, core::ptr::null_mut());
         if tag < 0 {
             return tag;
         }
@@ -71,7 +72,7 @@ pub fn lfs_stat_(
             p = p.add(1);
         }
 
-        lfs_dir_getinfo(lfs, &cwd, lfs_tag_id(tag as u32), info)
+        lfs_dir_getinfo(lfs, caches, &cwd, lfs_tag_id(tag as u32), info)
     }
 }
 
@@ -119,7 +120,11 @@ pub fn lfs_stat_(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_fs_stat_(lfs: *mut super::lfs::Lfs, fsinfo: *mut crate::lfs_info::LfsFsinfo) -> i32 {
+pub fn lfs_fs_stat_(
+    lfs: &mut super::lfs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    fsinfo: *mut crate::lfs_info::LfsFsinfo,
+) -> i32 {
     use crate::dir::fetch::lfs_dir_fetch;
     use crate::dir::traverse::lfs_dir_get;
     use crate::lfs_gstate::lfs_gstate_needssuperblock;
@@ -129,10 +134,9 @@ pub fn lfs_fs_stat_(lfs: *mut super::lfs::Lfs, fsinfo: *mut crate::lfs_info::Lfs
     use crate::types::LFS_DISK_VERSION;
 
     unsafe {
-        let lfs_ref = &*lfs;
         let fsinfo = &mut *fsinfo;
 
-        if !lfs_gstate_needssuperblock(&lfs_ref.gstate) {
+        if !lfs_gstate_needssuperblock(&lfs.gstate) {
             fsinfo.disk_version = LFS_DISK_VERSION;
         } else {
             let mut dir = crate::dir::LfsMdir {
@@ -145,13 +149,15 @@ pub fn lfs_fs_stat_(lfs: *mut super::lfs::Lfs, fsinfo: *mut crate::lfs_info::Lfs
                 split: false,
                 tail: [0, 0],
             };
-            let err = lfs_dir_fetch(lfs, &mut dir, &lfs_ref.root);
+            let root = lfs.root;
+            let err = lfs_dir_fetch(lfs, caches, &mut dir, &root);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
             let mut superblock = core::mem::zeroed::<LfsSuperblock>();
             let tag = lfs_dir_get(
                 lfs,
+                caches,
                 &dir as *const _,
                 lfs_mktag(0x7ff, 0x3ff, 0),
                 lfs_mktag(
@@ -168,11 +174,11 @@ pub fn lfs_fs_stat_(lfs: *mut super::lfs::Lfs, fsinfo: *mut crate::lfs_info::Lfs
             fsinfo.disk_version = superblock.version;
         }
 
-        fsinfo.block_size = (*lfs_ref.cfg).block_size;
-        fsinfo.block_count = lfs_ref.block_count;
-        fsinfo.name_max = lfs_ref.name_max;
-        fsinfo.file_max = lfs_ref.file_max;
-        fsinfo.attr_max = lfs_ref.attr_max;
+        fsinfo.block_size = (*lfs.cfg).block_size;
+        fsinfo.block_count = lfs.block_count;
+        fsinfo.name_max = lfs.name_max;
+        fsinfo.file_max = lfs.file_max;
+        fsinfo.attr_max = lfs.attr_max;
     }
     0
 }
@@ -211,10 +217,11 @@ pub unsafe extern "C" fn lfs_fs_size_count(p: *mut core::ffi::c_void, _block: lf
 ///     return size;
 /// }
 /// ```
-pub fn lfs_fs_size_(lfs: *mut super::lfs::Lfs) -> lfs_ssize_t {
+pub fn lfs_fs_size_(lfs: &mut super::lfs::Lfs, caches: &mut crate::fs::LfsCaches) -> lfs_ssize_t {
     let mut size: lfs_size_t = 0;
     let err = lfs_fs_traverse_(
         lfs,
+        caches,
         Some(lfs_fs_size_count),
         &mut size as *mut _ as *mut core::ffi::c_void,
         false,

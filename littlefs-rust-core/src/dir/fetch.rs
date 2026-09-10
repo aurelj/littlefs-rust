@@ -309,14 +309,21 @@ use core::mem;
 ///
 /// ```
 pub fn lfs_dir_fetchmatch(
-    _lfs: *const core::ffi::c_void,
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     _dir: *mut LfsMdir,
     _pair: *const [lfs_block_t; 2],
     _fmask: lfs_tag_t,
     _ftag: lfs_tag_t,
     _id: *mut u16,
     _cb: Option<
-        unsafe extern "C" fn(*mut core::ffi::c_void, lfs_tag_t, *const core::ffi::c_void) -> i32,
+        unsafe extern "C" fn(
+            &crate::fs::Lfs,
+            &mut crate::fs::LfsCaches,
+            *mut core::ffi::c_void,
+            lfs_tag_t,
+            *const core::ffi::c_void,
+        ) -> i32,
     >,
     _data: *mut core::ffi::c_void,
 ) -> lfs_stag_t {
@@ -326,7 +333,6 @@ pub fn lfs_dir_fetchmatch(
     const LFS_CMP_GT: i32 = 2;
 
     unsafe {
-        let lfs = &mut *(_lfs as *mut crate::fs::Lfs);
         let dir = &mut *_dir;
         let pair = &*_pair;
         let cfg = &*lfs.cfg;
@@ -347,8 +353,8 @@ pub fn lfs_dir_fetchmatch(
             let mut rev_buf = [0u8; 4];
             let err = lfs_bd_read(
                 lfs,
-                core::ptr::null(),
-                &mut lfs.rcache,
+                None,
+                &mut caches.rcache,
                 4,
                 pair[i],
                 0,
@@ -417,8 +423,8 @@ pub fn lfs_dir_fetchmatch(
                 let mut tag_buf = [0u8; 4];
                 let err = lfs_bd_read(
                     lfs,
-                    core::ptr::null(),
-                    &mut lfs.rcache,
+                    None,
+                    &mut caches.rcache,
                     cfg.block_size,
                     dir.pair[0],
                     off,
@@ -449,8 +455,8 @@ pub fn lfs_dir_fetchmatch(
                     let mut dcrc_buf = [0u8; 4];
                     let err = lfs_bd_read(
                         lfs,
-                        core::ptr::null(),
-                        &mut lfs.rcache,
+                        None,
+                        &mut caches.rcache,
                         cfg.block_size,
                         dir.pair[0],
                         off + 4,
@@ -489,8 +495,8 @@ pub fn lfs_dir_fetchmatch(
                 let mut crc_val = crc;
                 let err = lfs_bd_crc(
                     lfs,
-                    core::ptr::null(),
-                    &mut lfs.rcache,
+                    None,
+                    &mut caches.rcache,
                     cfg.block_size,
                     dir.pair[0],
                     off + 4,
@@ -532,8 +538,8 @@ pub fn lfs_dir_fetchmatch(
                     let mut tail_buf = [0u8; 8];
                     let err = lfs_bd_read(
                         lfs,
-                        core::ptr::null(),
-                        &mut lfs.rcache,
+                        None,
+                        &mut caches.rcache,
                         cfg.block_size,
                         dir.pair[0],
                         off + 4,
@@ -552,8 +558,8 @@ pub fn lfs_dir_fetchmatch(
                     let mut fcrc_buf = [0u8; mem::size_of::<LfsFcrc>()];
                     let err = lfs_bd_read(
                         lfs,
-                        core::ptr::null(),
-                        &mut lfs.rcache,
+                        None,
+                        &mut caches.rcache,
                         cfg.block_size,
                         dir.pair[0],
                         off + 4,
@@ -581,7 +587,13 @@ pub fn lfs_dir_fetchmatch(
                             block: dir.pair[0],
                             off: off + 4,
                         };
-                        let res = cb(_data, tag, &diskoff as *const _ as *const core::ffi::c_void);
+                        let res = cb(
+                            lfs,
+                            caches,
+                            _data,
+                            tag,
+                            &diskoff as *const _ as *const core::ffi::c_void,
+                        );
                         if res < 0 {
                             if res == LFS_ERR_CORRUPT {
                                 break;
@@ -615,8 +627,8 @@ pub fn lfs_dir_fetchmatch(
                 let mut fcrc_ = 0xffff_ffffu32;
                 let err = lfs_bd_crc(
                     lfs,
-                    core::ptr::null(),
-                    &mut lfs.rcache,
+                    None,
+                    &mut caches.rcache,
                     cfg.block_size,
                     dir.pair[0],
                     dir.off,
@@ -697,9 +709,15 @@ pub fn lfs_dir_fetchmatch(
 ///             (lfs_tag_t)-1, (lfs_tag_t)-1, NULL, NULL, NULL);
 /// }
 /// ```
-pub fn lfs_dir_fetch(lfs: *mut crate::fs::Lfs, dir: *mut LfsMdir, pair: &[lfs_block_t; 2]) -> i32 {
+pub fn lfs_dir_fetch(
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    dir: *mut LfsMdir,
+    pair: &[lfs_block_t; 2],
+) -> i32 {
     let res = lfs_dir_fetchmatch(
-        lfs as *mut _ as *const core::ffi::c_void,
+        lfs,
+        caches,
         dir,
         pair as *const _,
         0xffff_ffff,
@@ -738,7 +756,8 @@ pub fn lfs_dir_fetch(lfs: *mut crate::fs::Lfs, dir: *mut LfsMdir, pair: &[lfs_bl
 /// }
 /// ```
 pub fn lfs_dir_getgstate(
-    lfs: *mut crate::fs::Lfs,
+    lfs: &crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     gstate: *mut LfsGstate,
 ) -> i32 {
@@ -749,6 +768,7 @@ pub fn lfs_dir_getgstate(
         };
         let res = lfs_dir_get(
             lfs,
+            caches,
             dir,
             crate::tag::lfs_mktag(0x7ff, 0, 0),
             crate::tag::lfs_mktag(
@@ -808,17 +828,17 @@ pub fn lfs_dir_getgstate(
 /// }
 /// ```
 pub fn lfs_dir_getinfo(
-    lfs: *mut crate::fs::Lfs,
+    lfs: &crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     id: u16,
     info: *mut LfsInfo,
 ) -> i32 {
-    if lfs.is_null() || dir.is_null() || info.is_null() {
+    if dir.is_null() || info.is_null() {
         return crate::error::LFS_ERR_INVAL;
     }
     unsafe {
         let info = &mut *info;
-        let lfs = &*lfs;
         let dir_ref = &*dir;
 
         // C: lfs.c:1415-1420
@@ -832,7 +852,8 @@ pub fn lfs_dir_getinfo(
         // C: lfs.c:1422-1426
         let name_max = lfs.name_max;
         let tag = lfs_dir_get(
-            lfs as *const _ as *mut _,
+            lfs,
+            caches,
             dir,
             lfs_mktag(0x780, 0x3ff, 0),
             lfs_mktag(LFS_TYPE_NAME, id as u32, name_max + 1),
@@ -847,7 +868,8 @@ pub fn lfs_dir_getinfo(
         // C: lfs.c:1430-1441
         let mut ctz = LfsCtz { head: 0, size: 0 };
         let tag = lfs_dir_get(
-            lfs as *const _ as *mut _,
+            lfs,
+            caches,
             dir,
             lfs_mktag(0x700, 0x3ff, 0),
             lfs_mktag(LFS_TYPE_STRUCT, id as u32, mem::size_of::<LfsCtz>() as u32),

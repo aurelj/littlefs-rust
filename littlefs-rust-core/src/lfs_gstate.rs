@@ -15,7 +15,7 @@ use crate::util::{lfs_fromle32, lfs_tole32};
 /// } lfs_gstate_t;
 /// ```
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct LfsGstate {
     pub tag: u32,
     pub pair: [lfs_block_t; 2],

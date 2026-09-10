@@ -36,7 +36,8 @@
 /// #endif
 /// ```
 pub fn lfs_fs_pred(
-    lfs: *mut crate::fs::Lfs,
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     pair: &[crate::types::lfs_block_t; 2],
     pdir: *mut crate::dir::LfsMdir,
 ) -> i32 {
@@ -78,7 +79,7 @@ pub fn lfs_fs_pred(
                 if !have_fetched {
                     // Matched before any fetch: tail [0,1] == pair (root).
                     // The root has no predecessor.
-                    let err = lfs_dir_fetch(lfs, pdir, &(*pdir).tail);
+                    let err = lfs_dir_fetch(lfs, caches, pdir, &(*pdir).tail);
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
@@ -89,7 +90,7 @@ pub fn lfs_fs_pred(
                 return 0;
             }
 
-            let err = lfs_dir_fetch(lfs, pdir, &(*pdir).tail);
+            let err = lfs_dir_fetch(lfs, caches, pdir, &(*pdir).tail);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -103,7 +104,6 @@ pub fn lfs_fs_pred(
 /// C: lfs.c:4835-4853
 #[repr(C)]
 pub struct LfsFsParentMatch {
-    pub lfs: *mut crate::fs::Lfs,
     pub pair: [crate::types::lfs_block_t; 2],
 }
 
@@ -128,6 +128,8 @@ const LFS_CMP_LT: i32 = 1;
 /// }
 /// ```
 pub unsafe extern "C" fn lfs_fs_parent_match(
+    lfs: &crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     data: *mut core::ffi::c_void,
     _tag: crate::types::lfs_tag_t,
     buffer: *const core::ffi::c_void,
@@ -144,10 +146,10 @@ pub unsafe extern "C" fn lfs_fs_parent_match(
 
     let mut child: [crate::types::lfs_block_t; 2] = [0, 0];
     let err = lfs_bd_read(
-        find.lfs,
-        core::ptr::null(),
-        &mut (*find.lfs).rcache,
-        (*find.lfs).cfg.as_ref().expect("cfg").block_size,
+        lfs,
+        None,
+        &mut caches.rcache,
+        lfs.cfg.as_ref().expect("cfg").block_size,
         disk.block,
         disk.off,
         child.as_mut_ptr() as *mut u8,
@@ -201,7 +203,8 @@ pub unsafe extern "C" fn lfs_fs_parent_match(
 /// #endif
 /// ```
 pub fn lfs_fs_parent(
-    lfs: *mut crate::fs::Lfs,
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     pair: *const [crate::types::lfs_block_t; 2],
     parent: *mut crate::dir::LfsMdir,
 ) -> crate::types::lfs_stag_t {
@@ -241,11 +244,11 @@ pub fn lfs_fs_parent(
             }
 
             let find_match = LfsFsParentMatch {
-                lfs,
                 pair: [(*pair)[0], (*pair)[1]],
             };
             let tag = lfs_dir_fetchmatch(
-                lfs as *mut _ as *const core::ffi::c_void,
+                lfs,
+                caches,
                 parent,
                 &(*parent).tail as *const _,
                 lfs_mktag(0x7ff, 0, 0x3ff),

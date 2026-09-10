@@ -113,24 +113,28 @@ use crate::util::{lfs_pair_fromle32, lfs_pair_tole32, lfs_path_islast, lfs_path_
 /// }
 /// #endif
 /// ```
-pub fn lfs_mkdir_(lfs: *mut super::lfs::Lfs, path: *const u8) -> i32 {
-    let err = lfs_fs_forceconsistency(lfs);
+pub fn lfs_mkdir_(
+    lfs: &mut super::lfs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    path: *const u8,
+) -> i32 {
+    let err = lfs_fs_forceconsistency(lfs, caches);
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
 
     unsafe {
         let mut cwd = LfsMlist {
-            next: (*lfs).mlist,
+            next: lfs.mlist,
             m: core::mem::zeroed(),
             type_: 0,
             id: 0,
         };
-        cwd.m.tail = [(*lfs).root[0], (*lfs).root[1]];
+        cwd.m.tail = lfs.root;
 
         let mut path_ptr = path;
         let mut id: u16 = 0;
-        let find_err = lfs_dir_find(lfs, &mut cwd.m, &mut path_ptr, &mut id);
+        let find_err = lfs_dir_find(lfs, caches, &mut cwd.m, &mut path_ptr, &mut id);
         if !(find_err == LFS_ERR_NOENT && lfs_path_islast(slice_until_nul(path_ptr))) {
             return if find_err < 0 {
                 find_err
@@ -141,13 +145,13 @@ pub fn lfs_mkdir_(lfs: *mut super::lfs::Lfs, path: *const u8) -> i32 {
 
         let path_slice = slice_until_nul(path_ptr);
         let nlen = lfs_path_namelen(path_slice);
-        if nlen > (*lfs).name_max {
+        if nlen > lfs.name_max {
             return crate::lfs_err!(LFS_ERR_NAMETOOLONG);
         }
 
         unsafe { lfs_alloc_ckpoint(lfs) };
         let mut dir = core::mem::zeroed();
-        let err = lfs_dir_alloc(lfs, &mut dir);
+        let err = lfs_dir_alloc(lfs, caches, &mut dir);
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -168,7 +172,7 @@ pub fn lfs_mkdir_(lfs: *mut super::lfs::Lfs, path: *const u8) -> i32 {
                 }
                 iter += 1;
             }
-            let err = lfs_dir_fetch(lfs, &mut pred, &pred.tail);
+            let err = lfs_dir_fetch(lfs, caches, &mut pred, &pred.tail);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -179,7 +183,7 @@ pub fn lfs_mkdir_(lfs: *mut super::lfs::Lfs, path: *const u8) -> i32 {
             tag: lfs_mktag(LFS_TYPE_SOFTTAIL, 0x3ff, 8),
             buffer: pred.tail.as_ptr() as *const core::ffi::c_void,
         }];
-        let err = lfs_dir_commit(lfs, &mut dir, attrs1.as_ptr() as *const _, 1);
+        let err = lfs_dir_commit(lfs, caches, &mut dir, attrs1.as_ptr() as *const _, 1);
         lfs_pair_fromle32(&mut pred.tail);
         if err != 0 {
             return crate::lfs_pass_err!(err);
@@ -193,16 +197,16 @@ pub fn lfs_mkdir_(lfs: *mut super::lfs::Lfs, path: *const u8) -> i32 {
 
             cwd.type_ = 0;
             cwd.id = 0;
-            (*lfs).mlist = &cwd as *const _ as *mut _;
+            lfs.mlist = &cwd as *const _ as *mut _;
 
             lfs_pair_tole32(&mut dir.pair);
             let attrs2 = [lfs_mattr {
                 tag: lfs_mktag(LFS_TYPE_SOFTTAIL, 0x3ff, 8),
                 buffer: dir.pair.as_ptr() as *const core::ffi::c_void,
             }];
-            let err = lfs_dir_commit(lfs, &mut pred, attrs2.as_ptr() as *const _, 1);
+            let err = lfs_dir_commit(lfs, caches, &mut pred, attrs2.as_ptr() as *const _, 1);
             lfs_pair_fromle32(&mut dir.pair);
-            (*lfs).mlist = cwd.next;
+            lfs.mlist = cwd.next;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -232,7 +236,7 @@ pub fn lfs_mkdir_(lfs: *mut super::lfs::Lfs, path: *const u8) -> i32 {
                 buffer: dir.pair.as_ptr() as *const core::ffi::c_void,
             },
         ];
-        let err = lfs_dir_commit(lfs, &mut cwd.m, attrs3.as_ptr() as *const _, 4);
+        let err = lfs_dir_commit(lfs, caches, &mut cwd.m, attrs3.as_ptr() as *const _, 4);
         lfs_pair_fromle32(&mut dir.pair);
         err
     }

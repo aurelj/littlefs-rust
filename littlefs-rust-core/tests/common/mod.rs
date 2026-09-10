@@ -616,7 +616,8 @@ pub fn path_bytes(s: &str) -> Vec<u8> {
 
 /// Read directory entry names (excluding "." and "..") from path. For use in dir tests.
 pub fn dir_entry_names(
-    lfs: *mut littlefs_rust_core::Lfs,
+    lfs: &mut littlefs_rust_core::Lfs,
+    caches: &mut littlefs_rust_core::LfsCaches,
     _config: *const LfsConfig,
     path_str: &str,
 ) -> Result<Vec<String>, i32> {
@@ -624,7 +625,7 @@ pub fn dir_entry_names(
 
     let path = path_bytes(path_str);
     let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
-    let err = lfs_dir_open(lfs, dir.as_mut_ptr(), path.as_ptr());
+    let err = lfs_dir_open(lfs, caches, dir.as_mut_ptr(), path.as_ptr());
     if err != 0 {
         return Err(err);
     }
@@ -632,7 +633,7 @@ pub fn dir_entry_names(
     let mut names = Vec::new();
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
     loop {
-        let n = lfs_dir_read(lfs, dir.as_mut_ptr(), info.as_mut_ptr());
+        let n = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
         if n == 0 {
             break;
         }
@@ -675,16 +676,17 @@ pub const LFS_FILE_MAX: i32 = 2_147_483_647;
 pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
     use littlefs_rust_core::{
         lfs_file_close, lfs_file_open, lfs_file_write, lfs_format, lfs_mount, lfs_unmount, Lfs,
-        LfsConfig, LfsFile,
+        LfsCaches, LfsConfig, LfsFile,
     };
 
     init_context(env);
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
-    let err = lfs_format(lfs.as_mut_ptr(), &env.config as *const LfsConfig);
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
+    let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     if err != 0 {
         return Err(err);
     }
-    let err = lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig);
+    let err = lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     if err != 0 {
         return Err(err);
     }
@@ -693,32 +695,34 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
     let data = b"Hello World!\0";
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     let err = lfs_file_open(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
         path.as_ptr(),
         0x0100 | 2,
     );
     if err != 0 {
-        let _ = lfs_unmount(lfs.as_mut_ptr());
+        let _ = lfs_unmount(&mut lfs);
         return Err(err);
     }
     let n = lfs_file_write(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
         data.as_ptr() as *const core::ffi::c_void,
         data.len() as u32,
     );
     if n != data.len() as i32 {
-        let _ = lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr());
-        let _ = lfs_unmount(lfs.as_mut_ptr());
+        let _ = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
+        let _ = lfs_unmount(&mut lfs);
         return Err(if n < 0 { n } else { -1 });
     }
-    let err = lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr());
+    let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
     if err != 0 {
-        let _ = lfs_unmount(lfs.as_mut_ptr());
+        let _ = lfs_unmount(&mut lfs);
         return Err(err);
     }
-    let err = lfs_unmount(lfs.as_mut_ptr());
+    let err = lfs_unmount(&mut lfs);
     if err != 0 {
         return Err(err);
     }
@@ -727,18 +731,26 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
 
 /// Get the metadata block number (`m.pair[0]`) for a directory while mounted.
 /// Caller must unmount before corrupting the returned block.
-pub fn dir_block(lfs: *mut littlefs_rust_core::Lfs, dir_path: &str) -> u32 {
-    dir_pair(lfs, dir_path)[0]
+pub fn dir_block(
+    lfs: &mut littlefs_rust_core::Lfs,
+    caches: &mut littlefs_rust_core::LfsCaches,
+    dir_path: &str,
+) -> u32 {
+    dir_pair(lfs, caches, dir_path)[0]
 }
 
 /// Get both metadata block numbers (`m.pair[0]`, `m.pair[1]`) for a directory while mounted.
 /// Used by fix_relocation tests to set wear on dir pairs.
-pub fn dir_pair(lfs: *mut littlefs_rust_core::Lfs, dir_path: &str) -> [u32; 2] {
+pub fn dir_pair(
+    lfs: &mut littlefs_rust_core::Lfs,
+    caches: &mut littlefs_rust_core::LfsCaches,
+    dir_path: &str,
+) -> [u32; 2] {
     use littlefs_rust_core::{lfs_dir_close, lfs_dir_open, LfsDir};
 
     let path = path_bytes(dir_path);
     let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
-    assert_ok(lfs_dir_open(lfs, dir.as_mut_ptr(), path.as_ptr()));
+    assert_ok(lfs_dir_open(lfs, caches, dir.as_mut_ptr(), path.as_ptr()));
     let pair = unsafe { (*dir.as_ptr()).m.pair };
     assert_ok(lfs_dir_close(lfs, dir.as_mut_ptr()));
     [pair[0], pair[1]]
@@ -788,10 +800,11 @@ pub fn config_with_inline_max(block_count: u32, inline_max: i32) -> TestEnv {
 /// Format fs, sync, return raw content of superblock blocks 0 and 1.
 /// Helper for debug tests. Caller must init_context before.
 pub fn format_and_read_superblock_blocks(env: &mut TestEnv) -> Result<(Vec<u8>, Vec<u8>), i32> {
-    use littlefs_rust_core::{lfs_format, Lfs};
+    use littlefs_rust_core::{lfs_format, Lfs, LfsCaches};
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
-    let err = lfs_format(lfs.as_mut_ptr(), &env.config as *const LfsConfig);
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
+    let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     if err != 0 {
         return Err(err);
     }
@@ -1145,7 +1158,8 @@ pub fn advance_prng(state: &mut u32, n: u32) {
 /// }
 /// ```
 pub fn write_prng_file(
-    lfs: *mut littlefs_rust_core::Lfs,
+    lfs: &mut littlefs_rust_core::Lfs,
+    caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,
     chunk_size: u32,
@@ -1161,6 +1175,7 @@ pub fn write_prng_file(
         }
         let n = littlefs_rust_core::lfs_file_write(
             lfs,
+            caches,
             file,
             buffer.as_ptr() as *const core::ffi::c_void,
             chunk,
@@ -1178,7 +1193,8 @@ pub fn write_prng_file(
 /// Like write_prng_file but returns Err on write failure (e.g. power-loss LFS_ERR_IO).
 /// Use in power-loss tests where writes can legitimately fail.
 pub fn write_prng_file_result(
-    lfs: *mut littlefs_rust_core::Lfs,
+    lfs: &mut littlefs_rust_core::Lfs,
+    caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,
     chunk_size: u32,
@@ -1194,6 +1210,7 @@ pub fn write_prng_file_result(
         }
         let n = littlefs_rust_core::lfs_file_write(
             lfs,
+            caches,
             file,
             buffer.as_ptr() as *const core::ffi::c_void,
             chunk,
@@ -1224,7 +1241,8 @@ pub fn write_prng_file_result(
 /// }
 /// ```
 pub fn verify_prng_file(
-    lfs: *mut littlefs_rust_core::Lfs,
+    lfs: &mut littlefs_rust_core::Lfs,
+    caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,
     chunk_size: u32,
@@ -1237,6 +1255,7 @@ pub fn verify_prng_file(
         let chunk = core::cmp::min(chunk_size, size - i);
         let n = littlefs_rust_core::lfs_file_read(
             lfs,
+            caches,
             file,
             buffer.as_mut_ptr() as *mut core::ffi::c_void,
             chunk,
@@ -1261,7 +1280,8 @@ pub fn verify_prng_file(
 /// Same as verify_prng_file but uses existing PRNG state (for verifying a tail after advance).
 /// Used when reading SIZE2..SIZE1 in test_files_rewrite (PRNG was advanced by SIZE2 from seed 1).
 pub fn verify_prng_file_with_state(
-    lfs: *mut littlefs_rust_core::Lfs,
+    lfs: &mut littlefs_rust_core::Lfs,
+    caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,
     chunk_size: u32,
@@ -1273,6 +1293,7 @@ pub fn verify_prng_file_with_state(
         let chunk = core::cmp::min(chunk_size, size - i);
         let n = littlefs_rust_core::lfs_file_read(
             lfs,
+            caches,
             file,
             buffer.as_mut_ptr() as *mut core::ffi::c_void,
             chunk,

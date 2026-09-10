@@ -2,7 +2,7 @@
 
 use crate::bd::LfsCache;
 use crate::error::LFS_ERR_CORRUPT;
-use crate::fs::Lfs;
+use crate::fs::{Lfs, LfsCaches};
 use crate::types::{lfs_block_t, lfs_off_t, lfs_size_t};
 use crate::util::{lfs_aligndown, lfs_alignup, lfs_min};
 
@@ -18,10 +18,8 @@ use crate::util::{lfs_aligndown, lfs_alignup, lfs_min};
 /// }
 /// ```
 #[inline(always)]
-pub fn lfs_cache_drop(_lfs: *const Lfs, rcache: *mut LfsCache) {
-    unsafe {
-        (*rcache).block = crate::types::LFS_BLOCK_NULL;
-    }
+pub fn lfs_cache_drop(cache: &mut LfsCache) {
+    cache.block = crate::types::LFS_BLOCK_NULL;
 }
 
 /// Per lfs.c lfs_cache_zero (lines 38-42)
@@ -35,15 +33,15 @@ pub fn lfs_cache_drop(_lfs: *const Lfs, rcache: *mut LfsCache) {
 /// }
 /// ```
 #[inline(always)]
-pub fn lfs_cache_zero(lfs: *const Lfs, pcache: *mut LfsCache) {
+pub fn lfs_cache_zero(lfs: &Lfs, cache: &mut LfsCache) {
     unsafe {
-        let cfg = (*lfs).cfg;
+        let cfg = lfs.cfg;
         let cache_size = (*cfg).cache_size as usize;
-        let buf = (*pcache).buffer;
+        let buf = cache.buffer;
         if !buf.is_null() {
             core::ptr::write_bytes(buf, 0xff, cache_size);
         }
-        (*pcache).block = crate::types::LFS_BLOCK_NULL;
+        cache.block = crate::types::LFS_BLOCK_NULL;
     }
 }
 
@@ -136,9 +134,9 @@ pub fn lfs_cache_zero(lfs: *const Lfs, pcache: *mut LfsCache) {
 /// }
 /// ```
 pub fn lfs_bd_read(
-    lfs: *mut Lfs,
-    pcache: *const LfsCache,
-    rcache: *mut LfsCache,
+    lfs: &Lfs,
+    pcache: Option<&LfsCache>,
+    rcache: &mut LfsCache,
     hint: lfs_size_t,
     block: lfs_block_t,
     off: lfs_off_t,
@@ -146,7 +144,6 @@ pub fn lfs_bd_read(
     size: lfs_size_t,
 ) -> i32 {
     unsafe {
-        let lfs = &mut *lfs;
         let cfg = &*lfs.cfg;
         let read = match cfg.read {
             Some(f) => f,
@@ -164,8 +161,7 @@ pub fn lfs_bd_read(
         while size > 0 {
             let mut diff = size;
 
-            if !pcache.is_null() {
-                let pcache = &*pcache;
+            if let Some(pcache) = pcache {
                 if block == pcache.block && off < pcache.off + pcache.size {
                     if off >= pcache.off {
                         diff = lfs_min(diff, pcache.size - (off - pcache.off));
@@ -185,7 +181,6 @@ pub fn lfs_bd_read(
                 }
             }
 
-            let rcache = &mut *rcache;
             if block == rcache.block && off < rcache.off + rcache.size {
                 if off >= rcache.off {
                     diff = lfs_min(diff, rcache.size - (off - rcache.off));
@@ -286,9 +281,9 @@ pub fn lfs_bd_read(
 /// }
 /// ```
 pub fn lfs_bd_cmp(
-    lfs: *mut Lfs,
-    pcache: *const LfsCache,
-    rcache: *mut LfsCache,
+    lfs: &Lfs,
+    pcache: Option<&LfsCache>,
+    rcache: &mut LfsCache,
     hint: lfs_size_t,
     block: lfs_block_t,
     off: lfs_off_t,
@@ -358,9 +353,9 @@ pub fn lfs_bd_cmp(
 /// }
 /// ```
 pub fn lfs_bd_crc(
-    lfs: *mut Lfs,
-    pcache: *const LfsCache,
-    rcache: *mut LfsCache,
+    lfs: &Lfs,
+    pcache: Option<&LfsCache>,
+    rcache: &mut LfsCache,
     hint: lfs_size_t,
     block: lfs_block_t,
     off: lfs_off_t,
@@ -435,18 +430,15 @@ pub fn lfs_bd_crc(
 /// #endif
 /// ```
 pub fn lfs_bd_flush(
-    lfs: *const Lfs,
-    pcache: *mut LfsCache,
-    rcache: *mut LfsCache,
+    lfs: &Lfs,
+    pcache: &mut LfsCache,
+    rcache: &mut LfsCache,
     validate: bool,
 ) -> i32 {
     use crate::types::LFS_BLOCK_INLINE;
     use crate::util::lfs_alignup;
 
     unsafe {
-        let lfs_ptr = lfs;
-        let lfs = &*lfs;
-        let pcache = &mut *pcache;
         let cfg = &*lfs.cfg;
 
         if pcache.block != crate::types::LFS_BLOCK_NULL && pcache.block != LFS_BLOCK_INLINE {
@@ -476,10 +468,10 @@ pub fn lfs_bd_flush(
             }
 
             if validate {
-                lfs_cache_drop(lfs, rcache);
+                lfs_cache_drop(rcache);
                 let res = lfs_bd_cmp(
-                    lfs_ptr as *mut Lfs,
-                    core::ptr::null(),
+                    lfs,
+                    None,
                     rcache,
                     diff,
                     pcache.block,
@@ -522,21 +514,16 @@ pub fn lfs_bd_flush(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_sync(
-    lfs: *const Lfs,
-    pcache: *mut LfsCache,
-    rcache: *mut LfsCache,
-    validate: bool,
-) -> i32 {
+pub fn lfs_bd_sync(lfs: &Lfs, pcache: &mut LfsCache, rcache: &mut LfsCache, validate: bool) -> i32 {
     unsafe {
-        lfs_cache_drop(lfs, rcache);
+        lfs_cache_drop(rcache);
 
         let err = lfs_bd_flush(lfs, pcache, rcache, validate);
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
 
-        let cfg = &*(*lfs).cfg;
+        let cfg = &*lfs.cfg;
         let sync = match cfg.sync {
             Some(f) => f,
             None => return LFS_ERR_CORRUPT,
@@ -600,9 +587,9 @@ pub fn lfs_bd_sync(
 /// #endif
 /// ```
 pub fn lfs_bd_prog(
-    lfs: *const Lfs,
-    pcache: *mut LfsCache,
-    rcache: *mut LfsCache,
+    lfs: &Lfs,
+    pcache: &mut LfsCache,
+    rcache: &mut LfsCache,
     validate: bool,
     block: lfs_block_t,
     off: lfs_off_t,
@@ -613,7 +600,6 @@ pub fn lfs_bd_prog(
     use crate::util::{lfs_aligndown, lfs_max, lfs_min};
 
     unsafe {
-        let lfs = &*lfs;
         let cfg = &*lfs.cfg;
         let pcache = &mut *pcache;
 
@@ -692,11 +678,10 @@ pub fn lfs_bd_prog(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_erase(lfs: *const Lfs, block: lfs_block_t) -> i32 {
+pub fn lfs_bd_erase(lfs: &Lfs, block: lfs_block_t) -> i32 {
     unsafe {
-        let lfs = &*lfs;
         crate::lfs_assert!(block < lfs.block_count);
-        let erase = match (*lfs.cfg).erase {
+        let erase = match lfs.cfg.erase {
             Some(f) => f,
             None => return LFS_ERR_CORRUPT,
         };

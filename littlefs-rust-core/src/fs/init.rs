@@ -182,9 +182,12 @@ use crate::util::{lfs_min, lfs_npw2};
 /// }
 /// ```
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn lfs_init(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsConfig) -> i32 {
+pub fn lfs_init(
+    lfs: &mut super::lfs::Lfs,
+    caches: &mut super::lfs::LfsCaches,
+    cfg: *const crate::lfs_config::LfsConfig,
+) -> i32 {
     unsafe {
-        let lfs = &mut *lfs;
         let cfg = &*cfg;
 
         // check that bool is a truthy-preserving type (C: (bool)0x80000000)
@@ -230,10 +233,10 @@ pub fn lfs_init(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsCon
         lfs.cfg = cfg;
         lfs.block_count = cfg.block_count;
 
-        lfs.rcache.buffer = cfg.read_buffer as *mut u8;
-        lfs.pcache.buffer = cfg.prog_buffer as *mut u8;
-        lfs_cache_zero(lfs, &mut lfs.rcache);
-        lfs_cache_zero(lfs, &mut lfs.pcache);
+        caches.rcache.buffer = cfg.read_buffer as *mut u8;
+        caches.pcache.buffer = cfg.prog_buffer as *mut u8;
+        lfs_cache_zero(lfs, &mut caches.rcache);
+        lfs_cache_zero(lfs, &mut caches.pcache);
 
         crate::lfs_assert!(cfg.lookahead_size > 0);
         lfs.lookahead.buffer = cfg.lookahead_buffer as *mut u8;
@@ -317,7 +320,7 @@ pub fn lfs_init(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsCon
 ///
 ///
 /// ```
-pub fn lfs_deinit(_lfs: *mut super::lfs::Lfs) -> i32 {
+pub fn lfs_deinit(_lfs: &mut super::lfs::Lfs) -> i32 {
     // With provided buffers (read_buffer, prog_buffer, lookahead_buffer), no free needed
     0
 }

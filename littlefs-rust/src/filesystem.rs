@@ -5,7 +5,7 @@ use core::cell::RefCell;
 use core::ffi::c_void;
 use core::mem::{ManuallyDrop, MaybeUninit};
 
-use littlefs_rust_core::{Lfs, LfsConfig, LfsInfo, LFS_ERR_IO};
+use littlefs_rust_core::{Lfs, LfsCaches, LfsConfig, LfsInfo, LFS_ERR_IO};
 
 use crate::config::Config;
 use crate::dir::{dir_entry_from_info, ReadDir};
@@ -15,7 +15,8 @@ use crate::metadata::{DirEntry, Metadata, OpenFlags};
 use crate::storage::Storage;
 
 pub(crate) struct FsInner<S: Storage> {
-    pub(crate) lfs: MaybeUninit<Lfs>,
+    pub(crate) lfs: Lfs,
+    pub(crate) caches: LfsCaches,
     pub(crate) config: LfsConfig,
     pub(crate) storage: S,
     _read_buf: Vec<u8>,
@@ -124,7 +125,8 @@ fn build_inner<S: Storage>(storage: S, config: &Config) -> FsInner<S> {
     };
 
     FsInner {
-        lfs: MaybeUninit::zeroed(),
+        lfs: Lfs::default(),
+        caches: LfsCaches::default(),
         config: lfs_config,
         storage,
         _read_buf: read_buf,
@@ -154,7 +156,8 @@ impl<S: Storage> Filesystem<S> {
         let mut inner = build_inner_borrowed(storage, config);
         wire_context_borrowed(&mut inner);
         let rc = littlefs_rust_core::lfs_format(
-            inner.lfs.as_mut_ptr(),
+            &mut inner.lfs,
+            &mut inner.caches,
             &inner.config as *const LfsConfig,
         );
         from_lfs_result(rc)
@@ -168,7 +171,8 @@ impl<S: Storage> Filesystem<S> {
         let mut inner = Box::new(build_inner(storage, &config));
         wire_context(&mut inner);
         let rc = littlefs_rust_core::lfs_mount(
-            inner.lfs.as_mut_ptr(),
+            &mut inner.lfs,
+            &mut inner.caches,
             &inner.config as *const LfsConfig,
         );
         if rc != 0 {
@@ -186,14 +190,13 @@ impl<S: Storage> Filesystem<S> {
     /// the storage.
     pub fn unmount(self) -> Result<S, Error> {
         let this = ManuallyDrop::new(self);
-        let mut inner = this.inner.borrow_mut();
+        let inner = &mut *this.inner.borrow_mut();
         let rc = if inner.mounted {
             inner.mounted = false;
-            littlefs_rust_core::lfs_unmount(inner.lfs.as_mut_ptr())
+            littlefs_rust_core::lfs_unmount(&mut inner.lfs)
         } else {
             0
         };
-        drop(inner);
         // Safety: we prevented Drop from running via ManuallyDrop, and we've
         // already unmounted. Take ownership of the RefCell's contents.
         let fs_inner = unsafe { core::ptr::read(&this.inner) }.into_inner();
@@ -248,16 +251,18 @@ impl<S: Storage> Filesystem<S> {
     /// Create a directory. Fails if it already exists.
     pub fn mkdir(&self, path: &str) -> Result<(), Error> {
         let path_bytes = null_terminate(path);
-        let mut inner = self.inner.borrow_mut();
-        let rc = littlefs_rust_core::lfs_mkdir(inner.lfs.as_mut_ptr(), path_bytes.as_ptr());
+        let inner = &mut *self.inner.borrow_mut();
+        let rc =
+            littlefs_rust_core::lfs_mkdir(&mut inner.lfs, &mut inner.caches, path_bytes.as_ptr());
         from_lfs_result(rc)
     }
 
     /// Remove a file or empty directory.
     pub fn remove(&self, path: &str) -> Result<(), Error> {
         let path_bytes = null_terminate(path);
-        let mut inner = self.inner.borrow_mut();
-        let rc = littlefs_rust_core::lfs_remove(inner.lfs.as_mut_ptr(), path_bytes.as_ptr());
+        let inner = &mut *self.inner.borrow_mut();
+        let rc =
+            littlefs_rust_core::lfs_remove(&mut inner.lfs, &mut inner.caches, path_bytes.as_ptr());
         from_lfs_result(rc)
     }
 
@@ -265,9 +270,10 @@ impl<S: Storage> Filesystem<S> {
     pub fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
         let from_bytes = null_terminate(from);
         let to_bytes = null_terminate(to);
-        let mut inner = self.inner.borrow_mut();
+        let inner = &mut *self.inner.borrow_mut();
         let rc = littlefs_rust_core::lfs_rename(
-            inner.lfs.as_mut_ptr(),
+            &mut inner.lfs,
+            &mut inner.caches,
             from_bytes.as_ptr(),
             to_bytes.as_ptr(),
         );
@@ -279,9 +285,10 @@ impl<S: Storage> Filesystem<S> {
         let path_bytes = null_terminate(path);
         let mut info = MaybeUninit::<LfsInfo>::zeroed();
         {
-            let mut inner = self.inner.borrow_mut();
+            let inner = &mut *self.inner.borrow_mut();
             let rc = littlefs_rust_core::lfs_stat(
-                inner.lfs.as_mut_ptr(),
+                &mut inner.lfs,
+                &mut inner.caches,
                 path_bytes.as_ptr(),
                 info.as_mut_ptr(),
             );
@@ -318,24 +325,24 @@ impl<S: Storage> Filesystem<S> {
 
     /// Return the number of allocated blocks.
     pub fn fs_size(&self) -> Result<u32, Error> {
-        let mut inner = self.inner.borrow_mut();
-        let rc = littlefs_rust_core::lfs_fs_size(inner.lfs.as_mut_ptr());
+        let inner = &mut *self.inner.borrow_mut();
+        let rc = littlefs_rust_core::lfs_fs_size(&mut inner.lfs, &mut inner.caches);
         from_lfs_size(rc)
     }
 
     /// Run garbage collection to reclaim unused blocks.
     pub fn gc(&self) -> Result<(), Error> {
-        let mut inner = self.inner.borrow_mut();
-        let rc = littlefs_rust_core::lfs_fs_gc(inner.lfs.as_mut_ptr());
+        let inner = &mut *self.inner.borrow_mut();
+        let rc = littlefs_rust_core::lfs_fs_gc(&mut inner.lfs, &mut inner.caches);
         from_lfs_result(rc)
     }
 }
 
 impl<S: Storage> Drop for Filesystem<S> {
     fn drop(&mut self) {
-        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+        if let Ok(inner) = self.inner.try_borrow_mut().as_deref_mut() {
             if inner.mounted {
-                let _ = littlefs_rust_core::lfs_unmount(inner.lfs.as_mut_ptr());
+                let _ = littlefs_rust_core::lfs_unmount(&mut inner.lfs);
                 inner.mounted = false;
             }
         }
@@ -345,7 +352,8 @@ impl<S: Storage> Drop for Filesystem<S> {
 // ── format helper (borrows storage instead of taking ownership) ─────────────
 
 struct BorrowedFsInner<'a, S: Storage> {
-    lfs: MaybeUninit<Lfs>,
+    lfs: Lfs,
+    caches: LfsCaches,
     config: LfsConfig,
     storage: &'a mut S,
     _read_buf: Vec<u8>,
@@ -389,7 +397,8 @@ fn build_inner_borrowed<'a, S: Storage>(
     };
 
     BorrowedFsInner {
-        lfs: MaybeUninit::zeroed(),
+        lfs: Lfs::default(),
+        caches: LfsCaches::default(),
         config: lfs_config,
         storage,
         _read_buf: read_buf,

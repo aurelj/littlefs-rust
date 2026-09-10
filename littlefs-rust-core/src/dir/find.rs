@@ -19,7 +19,6 @@ const LFS_CMP_GT: i32 = 2;
 /// Per lfs.c struct lfs_dir_find_match (lines 1447-1475)
 #[repr(C)]
 pub struct LfsDirFindMatch {
-    pub lfs: *mut Lfs,
     pub name: *const u8,
     pub size: lfs_size_t,
 }
@@ -60,6 +59,8 @@ pub struct LfsDirFindMatch {
 ///
 /// ```
 pub unsafe extern "C" fn lfs_dir_find_match(
+    lfs: &Lfs,
+    caches: &mut crate::fs::LfsCaches,
     data: *mut core::ffi::c_void,
     tag: lfs_tag_t,
     buffer: *const core::ffi::c_void,
@@ -70,13 +71,12 @@ pub unsafe extern "C" fn lfs_dir_find_match(
     unsafe {
         let name = &*(data as *const LfsDirFindMatch);
         let disk = &*(buffer as *const lfs_diskoff);
-        let lfs = &mut *name.lfs;
 
         let diff = lfs_min(name.size, lfs_tag_size(tag));
         let res = lfs_bd_cmp(
-            name.lfs,
-            core::ptr::null(),
-            &mut lfs.rcache,
+            lfs,
+            None,
+            &mut caches.rcache,
             diff,
             disk.block,
             disk.off,
@@ -211,16 +211,16 @@ pub unsafe extern "C" fn lfs_dir_find_match(
 /// }
 /// ```
 pub fn lfs_dir_find(
-    lfs: *mut Lfs,
+    lfs: &mut Lfs,
+    caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     path: *mut *const u8,
     id: *mut u16,
 ) -> crate::types::lfs_stag_t {
-    if lfs.is_null() || dir.is_null() || path.is_null() {
+    if dir.is_null() || path.is_null() {
         return crate::lfs_err!(LFS_ERR_INVAL as crate::types::lfs_stag_t);
     }
     unsafe {
-        let lfs_ref = &mut *lfs;
         let dir_ref = &mut *dir;
         let mut name = *path;
         if name.is_null() {
@@ -229,8 +229,8 @@ pub fn lfs_dir_find(
 
         // C: lfs.c:1488-1491
         let mut tag = lfs_mktag(LFS_TYPE_DIR, 0x3ff, 0) as i32;
-        dir_ref.tail[0] = lfs_ref.root[0];
-        dir_ref.tail[1] = lfs_ref.root[1];
+        dir_ref.tail[0] = lfs.root[0];
+        dir_ref.tail[1] = lfs.root[1];
 
         // C: lfs.c:1494-1495
         if *name == 0 {
@@ -311,6 +311,7 @@ pub fn lfs_dir_find(
             if lfs_tag_id(tag as u32) != 0x3ff {
                 let res = lfs_dir_get(
                     lfs,
+                    caches,
                     dir as *const _,
                     lfs_mktag(0x700, 0x3ff, 0),
                     lfs_mktag(LFS_TYPE_STRUCT, lfs_tag_id(tag as u32) as u32, 8),
@@ -349,12 +350,12 @@ pub fn lfs_dir_find(
                     namelen
                 );
                 let mut match_data = LfsDirFindMatch {
-                    lfs,
                     name,
                     size: namelen,
                 };
                 tag = lfs_dir_fetchmatch(
-                    lfs as *mut _ as *const core::ffi::c_void,
+                    lfs,
+                    caches,
                     dir,
                     &dir_ref.tail as *const _,
                     lfs_mktag(0x780, 0, 0),

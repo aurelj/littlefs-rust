@@ -10,9 +10,8 @@ use super::lfs_lookahead::LfsLookahead;
 
 /// Per lfs.h typedef struct lfs
 #[repr(C)]
+#[derive(Default)]
 pub struct Lfs {
-    pub rcache: LfsCache,
-    pub pcache: LfsCache,
     pub root: [lfs_block_t; 2],
     pub mlist: *mut LfsMlist,
     pub seed: u32,
@@ -26,4 +25,10 @@ pub struct Lfs {
     pub file_max: u32,
     pub attr_max: u32,
     pub inline_max: u32,
+}
+
+#[derive(Default)]
+pub struct LfsCaches {
+    pub pcache: LfsCache,
+    pub rcache: LfsCache,
 }

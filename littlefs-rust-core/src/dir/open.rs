@@ -60,15 +60,26 @@ use crate::util::{lfs_min, lfs_pair_cmp, lfs_pair_fromle32};
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_open_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, path: *const u8) -> i32 {
-    if lfs.is_null() || dir.is_null() || path.is_null() {
+pub fn lfs_dir_open_(
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    dir: *mut LfsDir,
+    path: *const u8,
+) -> i32 {
+    if dir.is_null() || path.is_null() {
         return crate::error::LFS_ERR_INVAL;
     }
     unsafe {
         let dir_ref = &mut *dir;
         let mut path_ptr = path;
 
-        let tag = lfs_dir_find(lfs, &mut dir_ref.m, &mut path_ptr, core::ptr::null_mut());
+        let tag = lfs_dir_find(
+            lfs,
+            caches,
+            &mut dir_ref.m,
+            &mut path_ptr,
+            core::ptr::null_mut(),
+        );
         if tag < 0 {
             return tag;
         }
@@ -79,11 +90,12 @@ pub fn lfs_dir_open_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, path: *const u8
 
         let mut pair = [0u32; 2];
         if lfs_tag_id(tag as u32) == 0x3ff {
-            pair[0] = (*lfs).root[0];
-            pair[1] = (*lfs).root[1];
+            pair[0] = lfs.root[0];
+            pair[1] = lfs.root[1];
         } else {
             let res = lfs_dir_get(
                 lfs,
+                caches,
                 &dir_ref.m as *const _,
                 lfs_mktag(0x700, 0x3ff, 0),
                 lfs_mktag(
@@ -99,7 +111,7 @@ pub fn lfs_dir_open_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, path: *const u8
             lfs_pair_fromle32(&mut pair);
         }
 
-        let err = lfs_dir_fetch(lfs, &mut dir_ref.m, &pair);
+        let err = lfs_dir_fetch(lfs, caches, &mut dir_ref.m, &pair);
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -126,8 +138,8 @@ pub fn lfs_dir_open_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, path: *const u8
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_close_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir) -> i32 {
-    if lfs.is_null() || dir.is_null() {
+pub fn lfs_dir_close_(lfs: &mut crate::fs::Lfs, dir: *mut LfsDir) -> i32 {
+    if dir.is_null() {
         return crate::error::LFS_ERR_INVAL;
     }
     unsafe {
@@ -185,8 +197,13 @@ pub fn lfs_dir_close_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir) -> i32 {
 ///     return true;
 /// }
 /// ```
-pub fn lfs_dir_read_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, info: *mut LfsInfo) -> i32 {
-    if lfs.is_null() || dir.is_null() || info.is_null() {
+pub fn lfs_dir_read_(
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    dir: *mut LfsDir,
+    info: *mut LfsInfo,
+) -> i32 {
+    if dir.is_null() || info.is_null() {
         return crate::error::LFS_ERR_INVAL;
     }
     unsafe {
@@ -232,14 +249,14 @@ pub fn lfs_dir_read_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, info: *mut LfsI
                 if !dir_ref.m.split {
                     return 0;
                 }
-                let err = lfs_dir_fetch(lfs, &mut dir_ref.m, &dir_ref.m.tail);
+                let err = lfs_dir_fetch(lfs, caches, &mut dir_ref.m, &dir_ref.m.tail);
                 if err != 0 {
                     return crate::lfs_pass_err!(err);
                 }
                 dir_ref.id = 0;
             }
 
-            let err = lfs_dir_getinfo(lfs, &dir_ref.m, dir_ref.id, info);
+            let err = lfs_dir_getinfo(lfs, caches, &dir_ref.m, dir_ref.id, info);
             if err != 0 && err != crate::error::LFS_ERR_NOENT {
                 return crate::lfs_pass_err!(err);
             }
@@ -295,9 +312,14 @@ pub fn lfs_dir_read_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, info: *mut LfsI
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_seek_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, off: lfs_off_t) -> i32 {
+pub fn lfs_dir_seek_(
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    dir: *mut LfsDir,
+    off: lfs_off_t,
+) -> i32 {
     unsafe {
-        let err = lfs_dir_rewind_(lfs, dir);
+        let err = lfs_dir_rewind_(lfs, caches, dir);
         if err != 0 {
             return err;
         }
@@ -308,7 +330,7 @@ pub fn lfs_dir_seek_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, off: lfs_off_t)
         let mut off = off - dir_ref.pos;
 
         // skip superblock entry
-        dir_ref.id = if off > 0 && lfs_pair_cmp(&dir_ref.head, &(*lfs).root) == 0 {
+        dir_ref.id = if off > 0 && lfs_pair_cmp(&dir_ref.head, &lfs.root) == 0 {
             1
         } else {
             0
@@ -319,7 +341,7 @@ pub fn lfs_dir_seek_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, off: lfs_off_t)
                 if !dir_ref.m.split {
                     return crate::error::LFS_ERR_INVAL;
                 }
-                let err = lfs_dir_fetch(lfs, &mut dir_ref.m, &dir_ref.m.tail);
+                let err = lfs_dir_fetch(lfs, caches, &mut dir_ref.m, &dir_ref.m.tail);
                 if err != 0 {
                     return err;
                 }
@@ -344,7 +366,7 @@ pub fn lfs_dir_seek_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir, off: lfs_off_t)
 ///     return dir->pos;
 /// }
 /// ```
-pub fn lfs_dir_tell_(_lfs: *mut crate::fs::Lfs, dir: *const LfsDir) -> crate::types::lfs_soff_t {
+pub fn lfs_dir_tell_(_lfs: &mut crate::fs::Lfs, dir: *const LfsDir) -> crate::types::lfs_soff_t {
     unsafe { (*dir).pos as crate::types::lfs_soff_t }
 }
 
@@ -364,10 +386,14 @@ pub fn lfs_dir_tell_(_lfs: *mut crate::fs::Lfs, dir: *const LfsDir) -> crate::ty
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_rewind_(lfs: *mut crate::fs::Lfs, dir: *mut LfsDir) -> i32 {
+pub fn lfs_dir_rewind_(
+    lfs: &mut crate::fs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    dir: *mut LfsDir,
+) -> i32 {
     unsafe {
         let dir_ref = &mut *dir;
-        let err = lfs_dir_fetch(lfs, &mut dir_ref.m, &dir_ref.head);
+        let err = lfs_dir_fetch(lfs, caches, &mut dir_ref.m, &dir_ref.head);
         if err != 0 {
             return err;
         }

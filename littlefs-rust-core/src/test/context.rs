@@ -1,7 +1,7 @@
 //! TestContext: env + Lfs, ready for format/mount. Single setup for unit tests.
 
 use crate::test::ram::{make_config, RamStorage, BLOCK_SIZE};
-use crate::{lfs_format, lfs_mount, lfs_unmount, Lfs, LfsConfig};
+use crate::{lfs_format, lfs_mount, lfs_unmount, Lfs, LfsCaches, LfsConfig};
 use core::mem::MaybeUninit;
 
 const DEFAULT_BLOCK_COUNT: u32 = 128;
@@ -10,7 +10,8 @@ const DEFAULT_BLOCK_COUNT: u32 = 128;
 pub struct TestContext {
     pub ram: RamStorage,
     pub config: LfsConfig,
-    lfs: MaybeUninit<Lfs>,
+    lfs: Lfs,
+    caches: LfsCaches,
     _read_buf: alloc::vec::Vec<u8>,
     _prog_buf: alloc::vec::Vec<u8>,
     _lookahead_buf: alloc::vec::Vec<u8>,
@@ -33,7 +34,8 @@ impl TestContext {
         let mut ctx = Self {
             ram,
             config,
-            lfs: MaybeUninit::zeroed(),
+            lfs: Lfs::default(),
+            caches: LfsCaches::default(),
             _read_buf: read_buf,
             _prog_buf: prog_buf,
             _lookahead_buf: lookahead_buf,
@@ -50,29 +52,29 @@ impl TestContext {
         Self::new(DEFAULT_BLOCK_COUNT)
     }
 
-    pub fn config(&self) -> *const LfsConfig {
-        &self.config as *const LfsConfig
-    }
-
-    pub fn lfs_mut(&mut self) -> *mut Lfs {
-        self.lfs.as_mut_ptr()
-    }
-
     /// Format the filesystem. Panics on error.
     pub fn format(&mut self) {
-        let err = lfs_format(self.lfs_mut(), self.config());
+        let err = lfs_format(
+            &mut self.lfs,
+            &mut self.caches,
+            &self.config as *const LfsConfig,
+        );
         assert_eq!(err, 0, "lfs_format failed: {}", err);
     }
 
     /// Mount the filesystem. Panics on error.
     pub fn mount(&mut self) {
-        let err = lfs_mount(self.lfs_mut(), self.config());
+        let err = lfs_mount(
+            &mut self.lfs,
+            &mut self.caches,
+            &self.config as *const LfsConfig,
+        );
         assert_eq!(err, 0, "lfs_mount failed: {}", err);
     }
 
     /// Unmount. Panics on error.
     pub fn unmount(&mut self) {
-        let err = lfs_unmount(self.lfs_mut());
+        let err = lfs_unmount(&mut self.lfs);
         assert_eq!(err, 0, "lfs_unmount failed: {}", err);
     }
 }

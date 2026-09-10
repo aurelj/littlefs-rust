@@ -37,9 +37,10 @@ impl<'a, S: Storage> ReadDir<'a, S> {
         let mut alloc = Box::new(DirAllocation::new());
         let path_bytes = null_terminate(path);
         {
-            let mut inner = fs.inner.borrow_mut();
+            let inner = &mut *fs.inner.borrow_mut();
             let rc = littlefs_rust_core::lfs_dir_open(
-                inner.lfs.as_mut_ptr(),
+                &mut inner.lfs,
+                &mut inner.caches,
                 alloc.dir.as_mut_ptr(),
                 path_bytes.as_ptr(),
             );
@@ -57,9 +58,8 @@ impl<'a, S: Storage> ReadDir<'a, S> {
     /// Dropping a [`ReadDir`] also closes it, but errors are silently ignored.
     pub fn close(mut self) -> Result<(), Error> {
         self.closed = true;
-        let mut inner = self.fs.inner.borrow_mut();
-        let rc =
-            littlefs_rust_core::lfs_dir_close(inner.lfs.as_mut_ptr(), self.alloc.dir.as_mut_ptr());
+        let inner = &mut *self.fs.inner.borrow_mut();
+        let rc = littlefs_rust_core::lfs_dir_close(&mut inner.lfs, self.alloc.dir.as_mut_ptr());
         from_lfs_result(rc)
     }
 }
@@ -71,9 +71,10 @@ impl<S: Storage> Iterator for ReadDir<'_, S> {
         loop {
             let mut info = MaybeUninit::<LfsInfo>::zeroed();
             let rc = {
-                let mut inner = self.fs.inner.borrow_mut();
+                let inner = &mut *self.fs.inner.borrow_mut();
                 littlefs_rust_core::lfs_dir_read(
-                    inner.lfs.as_mut_ptr(),
+                    &mut inner.lfs,
+                    &mut inner.caches,
                     self.alloc.dir.as_mut_ptr(),
                     info.as_mut_ptr(),
                 )
@@ -97,11 +98,9 @@ impl<S: Storage> Iterator for ReadDir<'_, S> {
 impl<S: Storage> Drop for ReadDir<'_, S> {
     fn drop(&mut self) {
         if !self.closed {
-            if let Ok(mut inner) = self.fs.inner.try_borrow_mut() {
-                let _ = littlefs_rust_core::lfs_dir_close(
-                    inner.lfs.as_mut_ptr(),
-                    self.alloc.dir.as_mut_ptr(),
-                );
+            if let Ok(inner) = self.fs.inner.try_borrow_mut().as_deref_mut() {
+                let _ =
+                    littlefs_rust_core::lfs_dir_close(&mut inner.lfs, self.alloc.dir.as_mut_ptr());
             }
         }
     }

@@ -14,8 +14,7 @@ use crate::types::lfs_block_t;
 ///
 /// # Safety
 /// `lfs` must point to a valid, initialized `Lfs` instance.
-pub unsafe fn lfs_alloc_ckpoint(lfs: *mut Lfs) {
-    let lfs = &mut *lfs;
+pub unsafe fn lfs_alloc_ckpoint(lfs: &mut Lfs) {
     lfs.lookahead.ckpoint = lfs.block_count;
 }
 
@@ -29,12 +28,10 @@ pub unsafe fn lfs_alloc_ckpoint(lfs: *mut Lfs) {
 ///     lfs_alloc_ckpoint(lfs);
 /// }
 /// ```
-pub fn lfs_alloc_drop(lfs: *mut Lfs) {
-    unsafe {
-        (*lfs).lookahead.size = 0;
-        (*lfs).lookahead.next = 0;
-        unsafe { lfs_alloc_ckpoint(lfs) };
-    }
+pub fn lfs_alloc_drop(lfs: &mut Lfs) {
+    lfs.lookahead.size = 0;
+    lfs.lookahead.next = 0;
+    unsafe { lfs_alloc_ckpoint(lfs) };
 }
 
 /// Per lfs.c lfs_alloc_lookahead (lines 627-637)
@@ -60,12 +57,11 @@ unsafe extern "C" fn lfs_alloc_lookahead_cb(
     data: *mut core::ffi::c_void,
     block: lfs_block_t,
 ) -> i32 {
-    lfs_alloc_lookahead(data as *mut Lfs, block)
+    lfs_alloc_lookahead(&mut *(data as *mut Lfs), block)
 }
 
-pub fn lfs_alloc_lookahead(p: *mut Lfs, block: lfs_block_t) -> i32 {
+pub fn lfs_alloc_lookahead(lfs: &mut Lfs, block: lfs_block_t) -> i32 {
     unsafe {
-        let lfs = &mut *p;
         // off = ((block - start) + block_count) % block_count
         let off = (block.wrapping_sub(lfs.lookahead.start)).wrapping_add(lfs.block_count)
             % lfs.block_count;
@@ -112,34 +108,33 @@ pub fn lfs_alloc_lookahead(p: *mut Lfs, block: lfs_block_t) -> i32 {
 /// }
 /// #endif
 /// ```
-pub fn lfs_alloc_scan(lfs: *mut Lfs) -> i32 {
+pub fn lfs_alloc_scan(lfs: &mut Lfs, caches: &mut crate::fs::LfsCaches) -> i32 {
     use crate::fs::traverse::lfs_fs_traverse_;
     use crate::util::lfs_min;
 
     crate::lfs_trace!("alloc_scan: start");
     unsafe {
-        let lfs_ref = &mut *lfs;
-        let cfg = lfs_ref.cfg.as_ref().expect("cfg");
-        let buf = lfs_ref.lookahead.buffer;
+        let cfg = lfs.cfg.as_ref().expect("cfg");
+        let buf = lfs.lookahead.buffer;
         if buf.is_null() {
             return crate::error::LFS_ERR_NOSPC;
         }
 
         // move lookahead buffer to the first unused block
-        lfs_ref.lookahead.start =
-            (lfs_ref.lookahead.start + lfs_ref.lookahead.next) % lfs_ref.block_count;
-        lfs_ref.lookahead.next = 0;
+        lfs.lookahead.start = (lfs.lookahead.start + lfs.lookahead.next) % lfs.block_count;
+        lfs.lookahead.next = 0;
         // note we limit the lookahead buffer to at most the amount of blocks
         // checkpointed, this prevents the math in lfs_alloc from underflowing
-        lfs_ref.lookahead.size = lfs_min(8 * cfg.lookahead_size, lfs_ref.lookahead.ckpoint);
+        lfs.lookahead.size = lfs_min(8 * cfg.lookahead_size, lfs.lookahead.ckpoint);
 
         // find mask of free blocks from tree
         core::ptr::write_bytes(buf, 0, cfg.lookahead_size as usize);
 
         let err = lfs_fs_traverse_(
             lfs,
+            caches,
             Some(lfs_alloc_lookahead_cb),
-            lfs as *mut core::ffi::c_void,
+            lfs as *const _ as *mut core::ffi::c_void,
             true,
         );
         if err != 0 {
@@ -209,11 +204,10 @@ pub fn lfs_alloc_scan(lfs: *mut Lfs) -> i32 {
 /// }
 /// #endif
 /// ```
-pub fn lfs_alloc(lfs: *mut Lfs, block: *mut lfs_block_t) -> i32 {
+pub fn lfs_alloc(lfs: &mut Lfs, caches: &mut crate::fs::LfsCaches, block: *mut lfs_block_t) -> i32 {
     use crate::error::LFS_ERR_NOSPC;
 
     unsafe {
-        let lfs = &mut *lfs;
         let buf = lfs.lookahead.buffer;
         if buf.is_null() {
             return crate::lfs_err!(LFS_ERR_NOSPC);
@@ -292,7 +286,7 @@ pub fn lfs_alloc(lfs: *mut Lfs, block: *mut lfs_block_t) -> i32 {
 
             // No blocks in our lookahead buffer, we need to scan the filesystem for
             // unused blocks in the next lookahead window.
-            let err = lfs_alloc_scan(lfs);
+            let err = lfs_alloc_scan(lfs, caches);
             if err != 0 {
                 crate::lfs_trace!(
                     "lfs_alloc NOSPC: alloc_scan returned {} start={} next={}",

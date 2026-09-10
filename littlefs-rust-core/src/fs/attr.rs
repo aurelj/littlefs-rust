@@ -52,13 +52,14 @@ use crate::util::lfs_min;
 /// }
 /// ```
 pub fn lfs_getattr_(
-    lfs: *mut Lfs,
+    lfs: &mut Lfs,
+    caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
     buffer: *mut core::ffi::c_void,
     size: lfs_size_t,
 ) -> lfs_ssize_t {
-    if lfs.is_null() || path.is_null() {
+    if path.is_null() {
         return crate::lfs_err!(LFS_ERR_INVAL);
     }
     unsafe {
@@ -70,11 +71,11 @@ pub fn lfs_getattr_(
             count: 0,
             erased: false,
             split: false,
-            tail: [(*lfs).root[0], (*lfs).root[1]],
+            tail: lfs.root,
         };
 
         let mut path_ptr = path;
-        let mut tag = lfs_dir_find(lfs, &mut cwd, &mut path_ptr, core::ptr::null_mut());
+        let mut tag = lfs_dir_find(lfs, caches, &mut cwd, &mut path_ptr, core::ptr::null_mut());
         if tag < 0 {
             return tag;
         }
@@ -82,7 +83,8 @@ pub fn lfs_getattr_(
         let mut id = lfs_tag_id(tag as u32) as u16;
         if id == 0x3ff {
             id = 0;
-            let err = lfs_dir_fetch(lfs, &mut cwd, &(*lfs).root);
+            let root = lfs.root;
+            let err = lfs_dir_fetch(lfs, caches, &mut cwd, &root);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -91,9 +93,9 @@ pub fn lfs_getattr_(
         let gtag = lfs_mktag(
             LFS_TYPE_USERATTR + r#type as u32,
             id as u32,
-            lfs_min(size, (*lfs).attr_max),
+            lfs_min(size, lfs.attr_max),
         );
-        tag = lfs_dir_get(lfs, &cwd, lfs_mktag(0x7ff, 0x3ff, 0), gtag, buffer);
+        tag = lfs_dir_get(lfs, caches, &cwd, lfs_mktag(0x7ff, 0x3ff, 0), gtag, buffer);
         if tag < 0 {
             if tag == LFS_ERR_NOENT {
                 return crate::lfs_err!(LFS_ERR_NOATTR);
@@ -135,13 +137,14 @@ pub fn lfs_getattr_(
 /// #endif
 /// ```
 pub fn lfs_commitattr(
-    lfs: *mut Lfs,
+    lfs: &mut Lfs,
+    caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
     buffer: *const core::ffi::c_void,
     size: lfs_size_t,
 ) -> i32 {
-    if lfs.is_null() || path.is_null() {
+    if path.is_null() {
         return crate::lfs_err!(LFS_ERR_INVAL);
     }
     unsafe {
@@ -153,11 +156,11 @@ pub fn lfs_commitattr(
             count: 0,
             erased: false,
             split: false,
-            tail: [(*lfs).root[0], (*lfs).root[1]],
+            tail: [lfs.root[0], lfs.root[1]],
         };
 
         let mut path_ptr = path;
-        let tag = lfs_dir_find(lfs, &mut cwd, &mut path_ptr, core::ptr::null_mut());
+        let tag = lfs_dir_find(lfs, caches, &mut cwd, &mut path_ptr, core::ptr::null_mut());
         if tag < 0 {
             return tag;
         }
@@ -165,7 +168,8 @@ pub fn lfs_commitattr(
         let mut id = lfs_tag_id(tag as u32) as u16;
         if id == 0x3ff {
             id = 0;
-            let err = lfs_dir_fetch(lfs, &mut cwd, &(*lfs).root);
+            let root = lfs.root;
+            let err = lfs_dir_fetch(lfs, caches, &mut cwd, &root);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -175,7 +179,7 @@ pub fn lfs_commitattr(
             tag: lfs_mktag(LFS_TYPE_USERATTR + r#type as u32, id as u32, size),
             buffer,
         }];
-        lfs_dir_commit(lfs, &mut cwd, attrs.as_ptr() as *const _, 1)
+        lfs_dir_commit(lfs, caches, &mut cwd, attrs.as_ptr() as *const _, 1)
     }
 }
 
@@ -196,20 +200,18 @@ pub fn lfs_commitattr(
 /// #endif
 /// ```
 pub fn lfs_setattr_(
-    lfs: *mut Lfs,
+    lfs: &mut Lfs,
+    caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
     buffer: *const core::ffi::c_void,
     size: lfs_size_t,
 ) -> i32 {
-    if lfs.is_null() {
-        return crate::lfs_err!(LFS_ERR_INVAL);
-    }
     unsafe {
-        if size > (*lfs).attr_max {
+        if size > lfs.attr_max {
             return crate::lfs_err!(LFS_ERR_NOSPC);
         }
-        lfs_commitattr(lfs, path, r#type, buffer, size)
+        lfs_commitattr(lfs, caches, path, r#type, buffer, size)
     }
 }
 
@@ -224,6 +226,11 @@ pub fn lfs_setattr_(
 /// }
 /// #endif
 /// ```
-pub fn lfs_removeattr_(lfs: *mut Lfs, path: *const u8, r#type: u8) -> i32 {
-    lfs_commitattr(lfs, path, r#type, core::ptr::null(), 0x3ff)
+pub fn lfs_removeattr_(
+    lfs: &mut Lfs,
+    caches: &mut crate::fs::LfsCaches,
+    path: *const u8,
+    r#type: u8,
+) -> i32 {
+    lfs_commitattr(lfs, caches, path, r#type, core::ptr::null(), 0x3ff)
 }

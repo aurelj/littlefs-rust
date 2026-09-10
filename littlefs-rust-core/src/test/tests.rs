@@ -6,14 +6,13 @@ use super::*;
 #[test]
 fn test_context_smoke() {
     let ctx = TestContext::default_blocks();
-    assert!(!ctx.config().is_null());
-    let cfg = unsafe { &*ctx.config() };
+    let cfg = &ctx.config;
     assert!(!cfg.context.is_null(), "config.context should be set");
     assert!(cfg.read.is_some());
     assert_eq!(ctx.ram.data.len(), 512 * 128);
     // Direct read through callback
     let mut buf = [0u8; 8];
-    let err = unsafe { cfg.read.expect("read")(ctx.config(), 0, 0, buf.as_mut_ptr(), 8) };
+    let err = unsafe { cfg.read.expect("read")(&ctx.config, 0, 0, buf.as_mut_ptr(), 8) };
     assert_eq!(err, 0);
     assert_eq!(buf, [0u8; 8]);
 }
@@ -23,7 +22,12 @@ fn test_context_smoke() {
 fn test_context_lfs_init() {
     let mut ctx = TestContext::default_blocks();
     let mut lfs = core::mem::MaybeUninit::<crate::Lfs>::zeroed();
-    let err = crate::fs::lfs_init(lfs.as_mut_ptr() as *mut _, ctx.config());
+    let mut caches = core::mem::MaybeUninit::<crate::LfsCaches>::zeroed();
+    let err = crate::fs::lfs_init(
+        unsafe { lfs.assume_init_mut() },
+        unsafe { caches.assume_init_mut() },
+        &ctx.config,
+    );
     assert_eq!(err, 0);
 }
 
@@ -36,11 +40,11 @@ fn test_context_format_to_alloc() {
     use crate::util::lfs_min;
 
     let mut ctx = TestContext::default_blocks();
-    let mut lfs = core::mem::MaybeUninit::<crate::Lfs>::zeroed();
-    let err = crate::fs::lfs_init(lfs.as_mut_ptr() as *mut _, ctx.config());
+    let mut lfs = crate::Lfs::default();
+    let mut caches = crate::LfsCaches::default();
+    let err = crate::fs::lfs_init(&mut lfs, &mut caches, &ctx.config);
     assert_eq!(err, 0);
 
-    let lfs = unsafe { &mut *lfs.as_mut_ptr() };
     let cfg = unsafe { &*lfs.cfg };
     if !lfs.lookahead.buffer.is_null() {
         unsafe {
@@ -50,7 +54,7 @@ fn test_context_format_to_alloc() {
     lfs.lookahead.start = 0;
     lfs.lookahead.size = lfs_min(8 * cfg.lookahead_size, lfs.block_count);
     lfs.lookahead.next = 0;
-    unsafe { lfs_alloc_ckpoint(lfs as *mut _) };
+    unsafe { lfs_alloc_ckpoint(&mut lfs) };
 
     let mut root = crate::dir::LfsMdir {
         pair: [0, 0],
@@ -62,7 +66,7 @@ fn test_context_format_to_alloc() {
         split: false,
         tail: [0, 0],
     };
-    let err = unsafe { lfs_dir_alloc(lfs as *mut _, &mut root) };
+    let err = unsafe { lfs_dir_alloc(&mut lfs, &mut caches, &mut root) };
     assert_eq!(err, 0);
 }
 
@@ -70,7 +74,7 @@ fn test_context_format_to_alloc() {
 #[test]
 fn test_context_buffers_writable() {
     let ctx = TestContext::default_blocks();
-    let cfg = unsafe { &*ctx.config() };
+    let cfg = &ctx.config;
     // Manually write to each buffer - simulate what lfs_cache_zero and format do
     let block_size = ctx.ram.block_size as usize;
     if !cfg.read_buffer.is_null() {

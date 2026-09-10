@@ -10,7 +10,7 @@
 
 use core::cell::Cell;
 
-use littlefs_rust_core::{Lfs, LfsConfig, LFS_ERR_IO};
+use littlefs_rust_core::{Lfs, LfsCaches, LfsConfig, LFS_ERR_IO};
 
 use super::{RamStorage, BLOCK_SIZE};
 
@@ -304,8 +304,8 @@ pub fn run_powerloss_linear<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     for n in 1..=max_iter {
@@ -313,11 +313,12 @@ where
         env.set_fail_after_writes(n);
         env.reset_write_count();
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
-        match op(lfs.as_mut_ptr(), config_ptr) {
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
+        match op(&mut lfs, &mut caches, config_ptr) {
             Ok(()) => return Ok(()),
             Err(LFS_ERR_IO) => {
-                verify(lfs.as_mut_ptr(), config_ptr)?;
+                verify(&mut lfs, &mut caches, config_ptr)?;
             }
             Err(e) => return Err(e),
         }
@@ -337,8 +338,8 @@ pub fn run_powerloss_log<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     let mut n: u32 = 1;
@@ -347,11 +348,12 @@ where
         env.set_fail_after_writes(n);
         env.reset_write_count();
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
-        match op(lfs.as_mut_ptr(), config_ptr) {
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
+        match op(&mut lfs, &mut caches, config_ptr) {
             Ok(()) => return Ok(()),
             Err(LFS_ERR_IO) => {
-                verify(lfs.as_mut_ptr(), config_ptr)?;
+                verify(&mut lfs, &mut caches, config_ptr)?;
             }
             Err(e) => return Err(e),
         }
@@ -374,8 +376,8 @@ pub fn run_powerloss_exhaustive<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     run_powerloss_exhaustive_inner(env, snapshot, max_iter, max_depth, &mut op, &mut verify)
 }
@@ -389,8 +391,8 @@ fn run_powerloss_exhaustive_inner<O, V>(
     verify: &mut V,
 ) -> Result<(), i32>
 where
-    O: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(*mut Lfs, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     for n in 1..=max_iter {
@@ -398,11 +400,12 @@ where
         env.set_fail_after_writes(n);
         env.reset_write_count();
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
-        match op(lfs.as_mut_ptr(), config_ptr) {
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
+        match op(&mut lfs, &mut caches, config_ptr) {
             Ok(()) => return Ok(()),
             Err(LFS_ERR_IO) => {
-                verify(lfs.as_mut_ptr(), config_ptr)?;
+                verify(&mut lfs, &mut caches, config_ptr)?;
                 if depth > 1 {
                     let inner_snapshot = env.snapshot();
                     let inner = run_powerloss_exhaustive_inner(

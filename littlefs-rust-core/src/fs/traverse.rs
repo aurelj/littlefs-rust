@@ -113,7 +113,8 @@
 ///
 /// C: lfs.c:4693-4794
 pub fn lfs_fs_traverse_(
-    lfs: *mut super::lfs::Lfs,
+    lfs: &mut super::lfs::Lfs,
+    caches: &mut crate::fs::LfsCaches,
     cb: Option<unsafe extern "C" fn(*mut core::ffi::c_void, crate::types::lfs_block_t) -> i32>,
     data: *mut core::ffi::c_void,
     includeorphans: bool,
@@ -184,7 +185,7 @@ pub fn lfs_fs_traverse_(
 
             // iterate through ids in directory
             crate::lfs_trace!("fs_traverse: fetch tail={:?} count={}", dir.tail, dir.count);
-            let err = lfs_dir_fetch(lfs, &mut dir, &dir.tail);
+            let err = lfs_dir_fetch(lfs, caches, &mut dir, &dir.tail);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -193,6 +194,7 @@ pub fn lfs_fs_traverse_(
                 let mut raw: [lfs_block_t; 2] = [0, 0];
                 let tag = lfs_dir_get(
                     lfs,
+                    caches,
                     &dir,
                     lfs_mktag(0x700, 0x3ff, 0),
                     lfs_mktag(crate::lfs_type::lfs_type::LFS_TYPE_STRUCT, id as u32, 8),
@@ -209,8 +211,8 @@ pub fn lfs_fs_traverse_(
                 if u32::from(lfs_tag_type3(tag as u32)) == LFS_TYPE_CTZSTRUCT {
                     let err = lfs_ctz_traverse(
                         lfs,
-                        core::ptr::null(),
-                        &mut (*lfs).rcache,
+                        None,
+                        &mut caches.rcache,
                         raw[0],
                         raw[1],
                         Some(cb),
@@ -240,7 +242,7 @@ pub fn lfs_fs_traverse_(
         use crate::lfs_type::lfs_open_flags::{LFS_F_DIRTY, LFS_F_INLINE, LFS_F_WRITING};
         use crate::lfs_type::lfs_type::LFS_TYPE_REG;
 
-        let mut m = (*lfs).mlist;
+        let mut m = lfs.mlist;
         #[cfg(feature = "loop_limits")]
         const MAX_MLIST: u32 = 64;
         #[cfg(feature = "loop_limits")]
@@ -261,8 +263,8 @@ pub fn lfs_fs_traverse_(
                 {
                     let err = lfs_ctz_traverse(
                         lfs,
-                        &(*f).cache,
-                        &mut (*lfs).rcache,
+                        Some(&(*f).cache),
+                        &mut caches.rcache,
                         f_ref.ctz.head,
                         f_ref.ctz.size,
                         Some(cb),
@@ -277,8 +279,8 @@ pub fn lfs_fs_traverse_(
                 {
                     let err = lfs_ctz_traverse(
                         lfs,
-                        &(*f).cache,
-                        &mut (*lfs).rcache,
+                        Some(&(*f).cache),
+                        &mut caches.rcache,
                         f_ref.block,
                         f_ref.pos,
                         Some(cb),

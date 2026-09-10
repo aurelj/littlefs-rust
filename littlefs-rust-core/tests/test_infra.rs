@@ -259,13 +259,16 @@ fn test_write_verify_prng_file() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<littlefs_rust_core::Lfs>::zeroed();
+    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut caches = littlefs_rust_core::LfsCaches::default();
     assert_ok(littlefs_rust_core::lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
     assert_ok(littlefs_rust_core::lfs_mount(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
 
@@ -274,33 +277,38 @@ fn test_write_verify_prng_file() {
 
     // Write 256 bytes in 31-byte chunks with seed=1
     assert_ok(littlefs_rust_core::lfs_file_open(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
         path.as_ptr(),
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
-    write_prng_file(lfs.as_mut_ptr(), file.as_mut_ptr(), 256, 31, 1);
+    write_prng_file(&mut lfs, &mut caches, file.as_mut_ptr(), 256, 31, 1);
     assert_ok(littlefs_rust_core::lfs_file_close(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
     ));
-    assert_ok(littlefs_rust_core::lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(littlefs_rust_core::lfs_unmount(&mut lfs));
 
     // Remount and verify
     assert_ok(littlefs_rust_core::lfs_mount(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
     assert_ok(littlefs_rust_core::lfs_file_open(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
         path.as_ptr(),
         LFS_O_RDONLY,
     ));
-    verify_prng_file(lfs.as_mut_ptr(), file.as_mut_ptr(), 256, 31, 1);
+    verify_prng_file(&mut lfs, &mut caches, file.as_mut_ptr(), 256, 31, 1);
     assert_ok(littlefs_rust_core::lfs_file_close(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
     ));
-    assert_ok(littlefs_rust_core::lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(littlefs_rust_core::lfs_unmount(&mut lfs));
 }

@@ -15,8 +15,8 @@ use littlefs_rust_core::lfs_type::lfs_type::{LFS_TYPE_DIR, LFS_TYPE_REG};
 use littlefs_rust_core::{
     lfs_dir_close, lfs_dir_open, lfs_dir_read, lfs_dir_rewind, lfs_dir_seek, lfs_dir_tell,
     lfs_file_close, lfs_file_open, lfs_format, lfs_mkdir, lfs_mount, lfs_remove, lfs_rename,
-    lfs_stat, lfs_unmount, Lfs, LfsConfig, LfsDir, LfsFile, LfsInfo, LFS_ERR_EXIST, LFS_ERR_ISDIR,
-    LFS_ERR_NOENT, LFS_ERR_NOTDIR, LFS_ERR_NOTEMPTY,
+    lfs_stat, lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsDir, LfsFile, LfsInfo, LFS_ERR_EXIST,
+    LFS_ERR_ISDIR, LFS_ERR_NOENT, LFS_ERR_NOTDIR, LFS_ERR_NOTEMPTY,
 };
 use rstest::rstest;
 
@@ -31,22 +31,29 @@ fn test_dirs_root() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
     let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
     assert_ok(lfs_dir_open(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         dir.as_mut_ptr(),
         ROOT_PATH.as_ptr(),
     ));
 
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-    let n = lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr());
+    let n = lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr());
     assert_eq!(n, 1);
     let info = unsafe { info.assume_init() };
     assert_eq!(info.name[0], b'.');
@@ -54,7 +61,7 @@ fn test_dirs_root() {
     assert_eq!(info.type_, LFS_TYPE_DIR as u8);
 
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-    let n = lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr());
+    let n = lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr());
     assert_eq!(n, 1);
     let info = unsafe { info.assume_init() };
     assert_eq!(info.name[0], b'.');
@@ -63,11 +70,11 @@ fn test_dirs_root() {
     assert_eq!(info.type_, LFS_TYPE_DIR as u8);
 
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-    let n = lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr());
+    let n = lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr());
     assert_eq!(n, 0);
 
-    assert_ok(lfs_dir_close(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_dir_close(&mut lfs, dir.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- test_dirs_one_mkdir ---
@@ -78,29 +85,40 @@ fn test_dirs_one_mkdir() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
     let path = path_bytes("d0");
-    assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path.as_ptr()));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path.as_ptr()));
 
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-    assert_ok(lfs_stat(lfs.as_mut_ptr(), path.as_ptr(), info.as_mut_ptr()));
+    assert_ok(lfs_stat(
+        &mut lfs,
+        &mut caches,
+        path.as_ptr(),
+        info.as_mut_ptr(),
+    ));
     let info = unsafe { info.assume_init() };
     let nul = info.name.iter().position(|&b| b == 0).unwrap_or(256);
     assert_eq!(core::str::from_utf8(&info.name[..nul]).unwrap(), "d0");
     assert_eq!(info.type_, LFS_TYPE_DIR as u8);
 
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+    let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
         .expect("dir_entry_names");
     assert_eq!(names.len(), 1);
     assert_eq!(names[0], "d0");
 
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- test_dirs_many_creation ---
@@ -124,20 +142,26 @@ fn test_dirs_many_creation(
     let mut env = default_config(block_count);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
     for i in 0..n {
         let path = path_bytes(&format!("dir{i:03}"));
-        let err = lfs_mkdir(lfs.as_mut_ptr(), path.as_ptr());
+        let err = lfs_mkdir(&mut lfs, &mut caches, path.as_ptr());
         assert_ok(err);
     }
 
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+    let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
         .expect("dir_entry_names");
     assert_eq!(names.len(), n);
     let mut names_sorted = names.clone();
@@ -147,7 +171,7 @@ fn test_dirs_many_creation(
     expected_sorted.sort();
     assert_eq!(names_sorted, expected_sorted);
 
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- test_dirs_many_removal ---
@@ -165,27 +189,33 @@ fn test_dirs_many_removal(#[values(3, 14, 25, 36, 47, 58, 69, 80, 91)] n: usize)
     let mut env = default_config(block_count);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
     for i in 0..n {
         let path = path_bytes(&format!("removeme{i:03}"));
-        assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path.as_ptr()));
+        assert_ok(lfs_mkdir(&mut lfs, &mut caches, path.as_ptr()));
     }
     for i in 0..n {
         let path = path_bytes(&format!("removeme{i:03}"));
-        assert_ok(lfs_remove(lfs.as_mut_ptr(), path.as_ptr()));
+        assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()));
     }
 
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+    let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
         .expect("dir_entry_names");
     assert!(names.is_empty());
 
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- test_dirs_many_rename ---
@@ -203,25 +233,31 @@ fn test_dirs_many_rename(#[values(3, 14, 25, 36, 47, 58, 69, 80, 91)] n: usize) 
     let mut env = default_config(block_count);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
     for i in 0..n {
         let path = path_bytes(&format!("test{i:03}"));
-        assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path.as_ptr()));
+        assert_ok(lfs_mkdir(&mut lfs, &mut caches, path.as_ptr()));
     }
     for i in 0..n {
         let old_path = path_bytes(&format!("test{i:03}"));
         let new_path = path_bytes(&format!("tedd{i:03}"));
-        let err = lfs_rename(lfs.as_mut_ptr(), old_path.as_ptr(), new_path.as_ptr());
+        let err = lfs_rename(&mut lfs, &mut caches, old_path.as_ptr(), new_path.as_ptr());
         assert_ok(err);
     }
 
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+    let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
         .expect("dir_entry_names");
     assert_eq!(names.len(), n);
     let mut names_sorted = names.clone();
@@ -231,7 +267,7 @@ fn test_dirs_many_rename(#[values(3, 14, 25, 36, 47, 58, 69, 80, 91)] n: usize) 
     expected_sorted.sort();
     assert_eq!(names_sorted, expected_sorted);
 
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- Implemented upstream cases ---
@@ -247,38 +283,58 @@ fn test_dirs_many_rename_append() {
         let mut env = default_config(128);
         init_context(&mut env);
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
         ));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
 
         for i in 0..n {
             let path = path_bytes(&format!("a{i:02}"));
-            assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path.as_ptr()));
+            assert_ok(lfs_mkdir(&mut lfs, &mut caches, path.as_ptr()));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
         for i in 0..n {
             let old = path_bytes(&format!("a{i:02}"));
             let new = path_bytes(&format!("z{i:02}"));
-            assert_ok(lfs_rename(lfs.as_mut_ptr(), old.as_ptr(), new.as_ptr()));
+            assert_ok(lfs_rename(
+                &mut lfs,
+                &mut caches,
+                old.as_ptr(),
+                new.as_ptr(),
+            ));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
         let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
         assert_ok(lfs_dir_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             ROOT_PATH.as_ptr(),
         ));
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         assert_eq!(
-            lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+            lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
             1
         );
         let info_ref = unsafe { &*info.as_ptr() };
@@ -288,7 +344,7 @@ fn test_dirs_many_rename_append() {
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         assert_eq!(
-            lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+            lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
             1
         );
         let info_ref = unsafe { &*info.as_ptr() };
@@ -301,7 +357,7 @@ fn test_dirs_many_rename_append() {
             let expected = format!("z{i:02}");
             let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
             assert_eq!(
-                lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+                lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
                 1,
                 "N={n}, expected entry {i}"
             );
@@ -314,12 +370,12 @@ fn test_dirs_many_rename_append() {
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         assert_eq!(
-            lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+            lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
             0
         );
 
-        assert_ok(lfs_dir_close(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_dir_close(&mut lfs, dir.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
     }
 }
 
@@ -340,11 +396,11 @@ fn test_dirs_many_reentrant() {
             &mut env,
             &snapshot,
             2000,
-            |lfs_ptr, config| {
-                let err = lfs_mount(lfs_ptr, config);
+            |lfs, caches, config| {
+                let err = lfs_mount(lfs, caches, config);
                 if err != 0 {
-                    let _ = lfs_format(lfs_ptr, config);
-                    let e = lfs_mount(lfs_ptr, config);
+                    let _ = lfs_format(lfs, caches, config);
+                    let e = lfs_mount(lfs, caches, config);
                     if e != 0 {
                         return Err(e);
                     }
@@ -352,111 +408,111 @@ fn test_dirs_many_reentrant() {
 
                 for i in 0..n {
                     let path = path_bytes(&format!("hi{i:03}"));
-                    let err = lfs_mkdir(lfs_ptr, path.as_ptr());
+                    let err = lfs_mkdir(lfs, caches, path.as_ptr());
                     if err != 0 && err != LFS_ERR_EXIST {
                         return Err(err);
                     }
                 }
                 for i in 0..n {
                     let path = path_bytes(&format!("hello{i:03}"));
-                    let err = lfs_remove(lfs_ptr, path.as_ptr());
+                    let err = lfs_remove(lfs, caches, path.as_ptr());
                     if err != 0 && err != LFS_ERR_NOENT {
                         return Err(err);
                     }
                 }
 
                 let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
-                if lfs_dir_open(lfs_ptr, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
+                if lfs_dir_open(lfs, caches, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
                     return Err(-1);
                 }
                 let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                 for i in 0..n {
                     let expected = format!("hi{i:03}");
-                    let r = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                    let r = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                     if r != 1 {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(if r < 0 { r } else { -1 });
                     }
                     let info_ref = unsafe { &*info.as_ptr() };
                     let nul = info_ref.name.iter().position(|&b| b == 0).unwrap_or(256);
                     let name = core::str::from_utf8(&info_ref.name[..nul]).unwrap();
                     if name != expected {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(-1);
                     }
                 }
-                if lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
-                    let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                if lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
+                    let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                     return Err(-1);
                 }
-                if lfs_dir_close(lfs_ptr, dir.as_mut_ptr()) != 0 {
+                if lfs_dir_close(lfs, dir.as_mut_ptr()) != 0 {
                     return Err(-1);
                 }
 
                 for i in 0..n {
                     let old = path_bytes(&format!("hi{i:03}"));
                     let new = path_bytes(&format!("hello{i:03}"));
-                    if lfs_rename(lfs_ptr, old.as_ptr(), new.as_ptr()) != 0 {
+                    if lfs_rename(lfs, caches, old.as_ptr(), new.as_ptr()) != 0 {
                         return Err(-1);
                     }
                 }
 
-                if lfs_dir_open(lfs_ptr, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
+                if lfs_dir_open(lfs, caches, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
                     return Err(-1);
                 }
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                 for i in 0..n {
                     let expected = format!("hello{i:03}");
-                    let r = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                    let r = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                     if r != 1 {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(if r < 0 { r } else { -1 });
                     }
                     let info_ref = unsafe { &*info.as_ptr() };
                     let nul = info_ref.name.iter().position(|&b| b == 0).unwrap_or(256);
                     let name = core::str::from_utf8(&info_ref.name[..nul]).unwrap();
                     if name != expected {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(-1);
                     }
                 }
-                if lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
-                    let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                if lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
+                    let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                     return Err(-1);
                 }
-                if lfs_dir_close(lfs_ptr, dir.as_mut_ptr()) != 0 {
+                if lfs_dir_close(lfs, dir.as_mut_ptr()) != 0 {
                     return Err(-1);
                 }
 
                 for i in 0..n {
                     let path = path_bytes(&format!("hello{i:03}"));
-                    if lfs_remove(lfs_ptr, path.as_ptr()) != 0 {
+                    if lfs_remove(lfs, caches, path.as_ptr()) != 0 {
                         return Err(-1);
                     }
                 }
 
-                if lfs_dir_open(lfs_ptr, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
+                if lfs_dir_open(lfs, caches, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
                     return Err(-1);
                 }
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
-                if lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
-                    let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
+                if lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
+                    let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                     return Err(-1);
                 }
-                if lfs_dir_close(lfs_ptr, dir.as_mut_ptr()) != 0 {
+                if lfs_dir_close(lfs, dir.as_mut_ptr()) != 0 {
                     return Err(-1);
                 }
 
-                if lfs_unmount(lfs_ptr) != 0 {
+                if lfs_unmount(lfs) != 0 {
                     return Err(-1);
                 }
                 Ok(())
             },
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         );
         result.unwrap_or_else(|_| panic!("test_dirs_many_reentrant N={n} should complete"));
     }
@@ -472,44 +528,56 @@ fn test_dirs_file_creation() {
         let mut env = default_config(128);
         init_context(&mut env);
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
         ));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
 
         for i in 0..n {
             let path = path_bytes(&format!("file{i:03}"));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
             assert_ok(lfs_file_open(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_WRONLY | LFS_O_CREAT,
             ));
-            assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
         let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
         assert_ok(lfs_dir_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             ROOT_PATH.as_ptr(),
         ));
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         assert_eq!(
-            lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+            lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
             1
         );
         assert_eq!(unsafe { (*info.as_ptr()).type_ }, LFS_TYPE_DIR as u8);
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         assert_eq!(
-            lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+            lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
             1
         );
         assert_eq!(unsafe { (*info.as_ptr()).type_ }, LFS_TYPE_DIR as u8);
@@ -518,7 +586,7 @@ fn test_dirs_file_creation() {
             let expected = format!("file{i:03}");
             let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
             assert_eq!(
-                lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+                lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
                 1,
                 "N={n}, expected entry {i}"
             );
@@ -531,12 +599,12 @@ fn test_dirs_file_creation() {
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         assert_eq!(
-            lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()),
+            lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()),
             0
         );
 
-        assert_ok(lfs_dir_close(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_dir_close(&mut lfs, dir.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
     }
 }
 
@@ -550,48 +618,67 @@ fn test_dirs_file_removal() {
         let mut env = default_config(128);
         init_context(&mut env);
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
         ));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
 
         for i in 0..n {
             let path = path_bytes(&format!("removeme{i:03}"));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
             assert_ok(lfs_file_open(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_WRONLY | LFS_O_CREAT,
             ));
-            assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
-        let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
+        let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
             .expect("dir_entry_names");
         let mut names_sorted = names.clone();
         names_sorted.sort();
         let mut expected: Vec<String> = (0..n).map(|i| format!("removeme{i:03}")).collect();
         expected.sort();
         assert_eq!(names_sorted, expected, "N={n} before removal");
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
         for i in 0..n {
             let path = path_bytes(&format!("removeme{i:03}"));
-            assert_ok(lfs_remove(lfs.as_mut_ptr(), path.as_ptr()));
+            assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
-        let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
+        let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
             .expect("dir_entry_names");
         assert!(names.is_empty(), "N={n} after removal: {names:?}");
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
     }
 }
 
@@ -605,53 +692,77 @@ fn test_dirs_file_rename() {
         let mut env = default_config(128);
         init_context(&mut env);
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
         ));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
 
         for i in 0..n {
             let path = path_bytes(&format!("test{i:03}"));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
             assert_ok(lfs_file_open(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_WRONLY | LFS_O_CREAT,
             ));
-            assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
-        let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
+        let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
             .expect("dir_entry_names");
         let mut names_sorted = names.clone();
         names_sorted.sort();
         let mut expected: Vec<String> = (0..n).map(|i| format!("test{i:03}")).collect();
         expected.sort();
         assert_eq!(names_sorted, expected, "N={n} before rename");
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
         for i in 0..n {
             let old = path_bytes(&format!("test{i:03}"));
             let new = path_bytes(&format!("tedd{i:03}"));
-            assert_ok(lfs_rename(lfs.as_mut_ptr(), old.as_ptr(), new.as_ptr()));
+            assert_ok(lfs_rename(
+                &mut lfs,
+                &mut caches,
+                old.as_ptr(),
+                new.as_ptr(),
+            ));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
-        let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
+        let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
             .expect("dir_entry_names");
         let mut names_sorted = names.clone();
         names_sorted.sort();
         let mut expected: Vec<String> = (0..n).map(|i| format!("tedd{i:03}")).collect();
         expected.sort();
         assert_eq!(names_sorted, expected, "N={n} after rename");
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
     }
 }
 
@@ -672,11 +783,11 @@ fn test_dirs_file_reentrant() {
             &mut env,
             &snapshot,
             3000,
-            |lfs_ptr, config| {
-                let err = lfs_mount(lfs_ptr, config);
+            |lfs, caches, config| {
+                let err = lfs_mount(lfs, caches, config);
                 if err != 0 {
-                    let _ = lfs_format(lfs_ptr, config);
-                    let e = lfs_mount(lfs_ptr, config);
+                    let _ = lfs_format(lfs, caches, config);
+                    let e = lfs_mount(lfs, caches, config);
                     if e != 0 {
                         return Err(e);
                     }
@@ -686,7 +797,8 @@ fn test_dirs_file_reentrant() {
                 for i in 0..n {
                     let path = path_bytes(&format!("hi{i:03}"));
                     if lfs_file_open(
-                        lfs_ptr,
+                        lfs,
+                        caches,
                         file.as_mut_ptr(),
                         path.as_ptr(),
                         LFS_O_CREAT | LFS_O_WRONLY,
@@ -694,105 +806,105 @@ fn test_dirs_file_reentrant() {
                     {
                         return Err(-1);
                     }
-                    if lfs_file_close(lfs_ptr, file.as_mut_ptr()) != 0 {
+                    if lfs_file_close(lfs, caches, file.as_mut_ptr()) != 0 {
                         return Err(-1);
                     }
                 }
                 for i in 0..n {
                     let path = path_bytes(&format!("hello{i:03}"));
-                    let err = lfs_remove(lfs_ptr, path.as_ptr());
+                    let err = lfs_remove(lfs, caches, path.as_ptr());
                     if err != 0 && err != LFS_ERR_NOENT {
                         return Err(err);
                     }
                 }
 
                 let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
-                if lfs_dir_open(lfs_ptr, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
+                if lfs_dir_open(lfs, caches, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
                     return Err(-1);
                 }
                 let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                 for i in 0..n {
                     let expected = format!("hi{i:03}");
-                    let r = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                    let r = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                     if r != 1 {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(if r < 0 { r } else { -1 });
                     }
                     let info_ref = unsafe { &*info.as_ptr() };
                     if info_ref.type_ != LFS_TYPE_REG as u8 {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(-1);
                     }
                     let nul = info_ref.name.iter().position(|&b| b == 0).unwrap_or(256);
                     let name = core::str::from_utf8(&info_ref.name[..nul]).unwrap();
                     if name != expected {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(-1);
                     }
                 }
-                if lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
-                    let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                if lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
+                    let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                     return Err(-1);
                 }
-                if lfs_dir_close(lfs_ptr, dir.as_mut_ptr()) != 0 {
+                if lfs_dir_close(lfs, dir.as_mut_ptr()) != 0 {
                     return Err(-1);
                 }
 
                 for i in 0..n {
                     let old = path_bytes(&format!("hi{i:03}"));
                     let new = path_bytes(&format!("hello{i:03}"));
-                    if lfs_rename(lfs_ptr, old.as_ptr(), new.as_ptr()) != 0 {
+                    if lfs_rename(lfs, caches, old.as_ptr(), new.as_ptr()) != 0 {
                         return Err(-1);
                     }
                 }
 
-                if lfs_dir_open(lfs_ptr, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
+                if lfs_dir_open(lfs, caches, dir.as_mut_ptr(), ROOT_PATH.as_ptr()) != 0 {
                     return Err(-1);
                 }
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
-                let _ = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
+                let _ = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                 for i in 0..n {
                     let expected = format!("hello{i:03}");
-                    let r = lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr());
+                    let r = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
                     if r != 1 {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(if r < 0 { r } else { -1 });
                     }
                     let info_ref = unsafe { &*info.as_ptr() };
                     if info_ref.type_ != LFS_TYPE_REG as u8 {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(-1);
                     }
                     let nul = info_ref.name.iter().position(|&b| b == 0).unwrap_or(256);
                     let name = core::str::from_utf8(&info_ref.name[..nul]).unwrap();
                     if name != expected {
-                        let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                        let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                         return Err(-1);
                     }
                 }
-                if lfs_dir_read(lfs_ptr, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
-                    let _ = lfs_dir_close(lfs_ptr, dir.as_mut_ptr());
+                if lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr()) != 0 {
+                    let _ = lfs_dir_close(lfs, dir.as_mut_ptr());
                     return Err(-1);
                 }
-                if lfs_dir_close(lfs_ptr, dir.as_mut_ptr()) != 0 {
+                if lfs_dir_close(lfs, dir.as_mut_ptr()) != 0 {
                     return Err(-1);
                 }
 
                 for i in 0..n {
                     let path = path_bytes(&format!("hello{i:03}"));
-                    if lfs_remove(lfs_ptr, path.as_ptr()) != 0 {
+                    if lfs_remove(lfs, caches, path.as_ptr()) != 0 {
                         return Err(-1);
                     }
                 }
 
-                if lfs_unmount(lfs_ptr) != 0 {
+                if lfs_unmount(lfs) != 0 {
                     return Err(-1);
                 }
                 Ok(())
             },
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         );
         result.unwrap_or_else(|_| panic!("test_dirs_file_reentrant N={n} should complete"));
     }
@@ -806,132 +918,164 @@ fn test_dirs_nested() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
-    assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path_bytes("potato").as_ptr()));
+    assert_ok(lfs_mkdir(
+        &mut lfs,
+        &mut caches,
+        path_bytes("potato").as_ptr(),
+    ));
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     assert_ok(lfs_file_open(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
         path_bytes("burito").as_ptr(),
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
-    assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
     assert_ok(lfs_mkdir(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("potato/baked").as_ptr(),
     ));
     assert_ok(lfs_mkdir(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("potato/sweet").as_ptr(),
     ));
     assert_ok(lfs_mkdir(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("potato/fried").as_ptr(),
     ));
 
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "potato")
-        .expect("potato dir_entry_names");
+    let names = dir_entry_names(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+        "potato",
+    )
+    .expect("potato dir_entry_names");
     let mut names_sorted = names.clone();
     names_sorted.sort();
     assert_eq!(names_sorted, vec!["baked", "fried", "sweet"]);
 
     assert_err(
         LFS_ERR_NOTEMPTY,
-        lfs_remove(lfs.as_mut_ptr(), path_bytes("potato").as_ptr()),
+        lfs_remove(&mut lfs, &mut caches, path_bytes("potato").as_ptr()),
     );
 
     assert_ok(lfs_rename(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("potato").as_ptr(),
         path_bytes("coldpotato").as_ptr(),
     ));
     assert_ok(lfs_rename(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("coldpotato").as_ptr(),
         path_bytes("warmpotato").as_ptr(),
     ));
     assert_ok(lfs_rename(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("warmpotato").as_ptr(),
         path_bytes("hotpotato").as_ptr(),
     ));
 
     assert_err(
         LFS_ERR_NOENT,
-        lfs_remove(lfs.as_mut_ptr(), path_bytes("potato").as_ptr()),
+        lfs_remove(&mut lfs, &mut caches, path_bytes("potato").as_ptr()),
     );
     assert_err(
         LFS_ERR_NOENT,
-        lfs_remove(lfs.as_mut_ptr(), path_bytes("coldpotato").as_ptr()),
+        lfs_remove(&mut lfs, &mut caches, path_bytes("coldpotato").as_ptr()),
     );
     assert_err(
         LFS_ERR_NOENT,
-        lfs_remove(lfs.as_mut_ptr(), path_bytes("warmpotato").as_ptr()),
+        lfs_remove(&mut lfs, &mut caches, path_bytes("warmpotato").as_ptr()),
     );
     assert_err(
         LFS_ERR_NOTEMPTY,
-        lfs_remove(lfs.as_mut_ptr(), path_bytes("hotpotato").as_ptr()),
+        lfs_remove(&mut lfs, &mut caches, path_bytes("hotpotato").as_ptr()),
     );
 
     assert_ok(lfs_mkdir(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("coldpotato").as_ptr(),
     ));
     assert_ok(lfs_rename(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato/baked").as_ptr(),
         path_bytes("coldpotato/baked").as_ptr(),
     ));
     assert_ok(lfs_rename(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato/fried").as_ptr(),
         path_bytes("coldpotato/fried").as_ptr(),
     ));
     assert_ok(lfs_rename(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato/sweet").as_ptr(),
         path_bytes("coldpotato/sweet").as_ptr(),
     ));
 
     assert_ok(lfs_remove(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato").as_ptr(),
     ));
     assert_ok(lfs_rename(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("coldpotato").as_ptr(),
         path_bytes("hotpotato").as_ptr(),
     ));
 
     assert_ok(lfs_remove(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato/baked").as_ptr(),
     ));
     assert_ok(lfs_remove(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato/fried").as_ptr(),
     ));
     assert_ok(lfs_remove(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato/sweet").as_ptr(),
     ));
     assert_ok(lfs_remove(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("hotpotato").as_ptr(),
     ));
 
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+    let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
         .expect("root dir_entry_names");
     assert_eq!(names, vec!["burito"]);
 
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 /// Upstream: [cases.test_dirs_recursive_remove]
@@ -944,24 +1088,32 @@ fn test_dirs_recursive_remove() {
         let mut env = default_config(256);
         init_context(&mut env);
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
         ));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
 
         assert_ok(lfs_mkdir(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             path_bytes("prickly-pear").as_ptr(),
         ));
         for i in 0..n {
             let path = path_bytes(&format!("prickly-pear/cactus{i:03}"));
-            assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path.as_ptr()));
+            assert_ok(lfs_mkdir(&mut lfs, &mut caches, path.as_ptr()));
         }
 
         let names = dir_entry_names(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
             "prickly-pear",
         )
@@ -970,18 +1122,19 @@ fn test_dirs_recursive_remove() {
 
         assert_err(
             LFS_ERR_NOTEMPTY,
-            lfs_remove(lfs.as_mut_ptr(), path_bytes("prickly-pear").as_ptr()),
+            lfs_remove(&mut lfs, &mut caches, path_bytes("prickly-pear").as_ptr()),
         );
 
         let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
         assert_ok(lfs_dir_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             path_bytes("prickly-pear").as_ptr(),
         ));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         loop {
-            let rc = lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr());
+            let rc = lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr());
             if rc == 0 {
                 break;
             }
@@ -993,27 +1146,33 @@ fn test_dirs_recursive_remove() {
             let nul = info_ref.name.iter().position(|&b| b == 0).unwrap_or(256);
             let name = core::str::from_utf8(&info_ref.name[..nul]).unwrap();
             let child_path = path_bytes(&format!("prickly-pear/{name}"));
-            assert_ok(lfs_remove(lfs.as_mut_ptr(), child_path.as_ptr()));
+            assert_ok(lfs_remove(&mut lfs, &mut caches, child_path.as_ptr()));
         }
-        assert_ok(lfs_dir_close(lfs.as_mut_ptr(), dir.as_mut_ptr()));
+        assert_ok(lfs_dir_close(&mut lfs, dir.as_mut_ptr()));
 
         assert_ok(lfs_remove(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             path_bytes("prickly-pear").as_ptr(),
         ));
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         assert_err(
             LFS_ERR_NOENT,
             lfs_stat(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 path_bytes("prickly-pear").as_ptr(),
                 info.as_mut_ptr(),
             ),
         );
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
     }
 }
 
@@ -1028,49 +1187,68 @@ fn test_dirs_remove_read() {
     let mut env = default_config(256);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
     assert_ok(lfs_mkdir(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         path_bytes("prickly-pear").as_ptr(),
     ));
     for i in 0..N {
         let path = path_bytes(&format!("prickly-pear/cactus{i:03}"));
-        assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path.as_ptr()));
+        assert_ok(lfs_mkdir(&mut lfs, &mut caches, path.as_ptr()));
     }
 
     for k in 0..N {
         for j in 0..=N {
             let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
             assert_ok(lfs_dir_open(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 dir.as_mut_ptr(),
                 path_bytes("prickly-pear").as_ptr(),
             ));
-            assert_ok(lfs_dir_rewind(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-            assert_ok(lfs_dir_seek(lfs.as_mut_ptr(), dir.as_mut_ptr(), j as _));
+            assert_ok(lfs_dir_rewind(&mut lfs, &mut caches, dir.as_mut_ptr()));
+            assert_ok(lfs_dir_seek(
+                &mut lfs,
+                &mut caches,
+                dir.as_mut_ptr(),
+                j as _,
+            ));
             assert_ok(lfs_remove(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 path_bytes(&format!("prickly-pear/cactus{k:03}")).as_ptr(),
             ));
             let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-            while lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()) > 0 {}
-            assert_ok(lfs_dir_close(lfs.as_mut_ptr(), dir.as_mut_ptr()));
+            while lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()) > 0 {}
+            assert_ok(lfs_dir_close(&mut lfs, dir.as_mut_ptr()));
             assert_ok(lfs_mkdir(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 path_bytes(&format!("prickly-pear/cactus{k:03}")).as_ptr(),
             ));
         }
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_unmount(&mut lfs));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
     }
 
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 /// Upstream: [cases.test_dirs_other_errors]
@@ -1081,37 +1259,49 @@ fn test_dirs_other_errors() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+    let mut lfs = Lfs::default();
+    let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         &env.config as *const LfsConfig,
     ));
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
 
-    assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path_bytes("potato").as_ptr()));
+    assert_ok(lfs_mkdir(
+        &mut lfs,
+        &mut caches,
+        path_bytes("potato").as_ptr(),
+    ));
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     assert_ok(lfs_file_open(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
         path_bytes("burito").as_ptr(),
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
-    assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
     assert_err(
         LFS_ERR_EXIST,
-        lfs_mkdir(lfs.as_mut_ptr(), path_bytes("potato").as_ptr()),
+        lfs_mkdir(&mut lfs, &mut caches, path_bytes("potato").as_ptr()),
     );
     assert_err(
         LFS_ERR_EXIST,
-        lfs_mkdir(lfs.as_mut_ptr(), path_bytes("burito").as_ptr()),
+        lfs_mkdir(&mut lfs, &mut caches, path_bytes("burito").as_ptr()),
     );
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     assert_err(
         LFS_ERR_EXIST,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("burito").as_ptr(),
             LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
@@ -1121,7 +1311,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_EXIST,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("potato").as_ptr(),
             LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
@@ -1132,7 +1323,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_NOENT,
         lfs_dir_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             path_bytes("tomato").as_ptr(),
         ),
@@ -1141,7 +1333,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_NOTDIR,
         lfs_dir_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             path_bytes("burito").as_ptr(),
         ),
@@ -1151,7 +1344,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_NOENT,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("tomato").as_ptr(),
             LFS_O_RDONLY,
@@ -1161,7 +1355,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_ISDIR,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("potato").as_ptr(),
             LFS_O_RDONLY,
@@ -1172,7 +1367,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_NOENT,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("tomato").as_ptr(),
             LFS_O_WRONLY,
@@ -1182,7 +1378,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_ISDIR,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("potato").as_ptr(),
             LFS_O_WRONLY,
@@ -1193,7 +1390,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_ISDIR,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("potato").as_ptr(),
             LFS_O_WRONLY | LFS_O_CREAT,
@@ -1202,17 +1400,19 @@ fn test_dirs_other_errors() {
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     assert_ok(lfs_file_open(
-        lfs.as_mut_ptr(),
+        &mut lfs,
+        &mut caches,
         file.as_mut_ptr(),
         path_bytes("tacoto").as_ptr(),
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
-    assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
     assert_err(
         LFS_ERR_ISDIR,
         lfs_rename(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             path_bytes("tacoto").as_ptr(),
             path_bytes("potato").as_ptr(),
         ),
@@ -1220,7 +1420,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_NOTDIR,
         lfs_rename(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             path_bytes("potato").as_ptr(),
             path_bytes("tacoto").as_ptr(),
         ),
@@ -1228,13 +1429,14 @@ fn test_dirs_other_errors() {
 
     assert_err(
         LFS_ERR_EXIST,
-        lfs_mkdir(lfs.as_mut_ptr(), path_bytes("/").as_ptr()),
+        lfs_mkdir(&mut lfs, &mut caches, path_bytes("/").as_ptr()),
     );
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     assert_err(
         LFS_ERR_EXIST,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("/").as_ptr(),
             LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
@@ -1244,7 +1446,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_ISDIR,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("/").as_ptr(),
             LFS_O_RDONLY,
@@ -1254,7 +1457,8 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_ISDIR,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("/").as_ptr(),
             LFS_O_WRONLY,
@@ -1264,28 +1468,33 @@ fn test_dirs_other_errors() {
     assert_err(
         LFS_ERR_ISDIR,
         lfs_file_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             file.as_mut_ptr(),
             path_bytes("/").as_ptr(),
             LFS_O_WRONLY | LFS_O_CREAT,
         ),
     );
 
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+    let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
         .expect("root listing");
     let mut names_sorted = names.clone();
     names_sorted.sort();
     assert_eq!(names_sorted, vec!["burito", "potato", "tacoto"]);
 
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
-    let names = dir_entry_names(lfs.as_mut_ptr(), &env.config as *const LfsConfig, "/")
+    assert_ok(lfs_mount(
+        &mut lfs,
+        &mut caches,
+        &env.config as *const LfsConfig,
+    ));
+    let names = dir_entry_names(&mut lfs, &mut caches, &env.config as *const LfsConfig, "/")
         .expect("root listing after remount");
     let mut names_sorted = names.clone();
     names_sorted.sort();
     assert_eq!(names_sorted, vec!["burito", "potato", "tacoto"]);
-    assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+    assert_ok(lfs_unmount(&mut lfs));
 }
 
 /// Upstream: [cases.test_dirs_seek]
@@ -1298,59 +1507,72 @@ fn test_dirs_seek() {
         let mut env = default_config(512);
         init_context(&mut env);
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
         ));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
 
-        assert_ok(lfs_mkdir(lfs.as_mut_ptr(), path_bytes("child").as_ptr()));
+        assert_ok(lfs_mkdir(
+            &mut lfs,
+            &mut caches,
+            path_bytes("child").as_ptr(),
+        ));
         for i in 0..count {
             let path = path_bytes(&format!("child/entry{i:03}"));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
             assert_ok(lfs_file_open(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
             ));
-            assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
         }
 
         let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
         assert_ok(lfs_dir_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             path_bytes("child").as_ptr(),
         ));
-        assert_ok(lfs_dir_rewind(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        let pos0 = lfs_dir_tell(lfs.as_mut_ptr(), dir.as_mut_ptr());
+        assert_ok(lfs_dir_rewind(&mut lfs, &mut caches, dir.as_mut_ptr()));
+        let pos0 = lfs_dir_tell(&mut lfs, dir.as_mut_ptr());
         assert!(pos0 >= 0, "tell after rewind");
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         let mut n = 0usize;
-        while lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()) > 0 {
+        while lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()) > 0 {
             n += 1;
         }
         assert_eq!(n, count + 2, "COUNT={count}: . and .. plus {count} entries");
 
-        assert_ok(lfs_dir_rewind(lfs.as_mut_ptr(), dir.as_mut_ptr()));
+        assert_ok(lfs_dir_rewind(&mut lfs, &mut caches, dir.as_mut_ptr()));
         let half = (count + 2) / 2;
         assert_ok(lfs_dir_seek(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             half as u32,
         ));
-        let pos_half = lfs_dir_tell(lfs.as_mut_ptr(), dir.as_mut_ptr());
+        let pos_half = lfs_dir_tell(&mut lfs, dir.as_mut_ptr());
         assert!(pos_half >= 0, "tell after seek");
 
-        assert_ok(lfs_dir_rewind(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        let pos_rewind = lfs_dir_tell(lfs.as_mut_ptr(), dir.as_mut_ptr());
+        assert_ok(lfs_dir_rewind(&mut lfs, &mut caches, dir.as_mut_ptr()));
+        let pos_rewind = lfs_dir_tell(&mut lfs, dir.as_mut_ptr());
         assert_eq!(pos_rewind, pos0, "tell after rewind matches initial");
 
-        assert_ok(lfs_dir_close(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_dir_close(&mut lfs, dir.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
     }
 }
 
@@ -1364,56 +1586,65 @@ fn test_dirs_toot_seek() {
         let mut env = default_config(512);
         init_context(&mut env);
 
-        let mut lfs = core::mem::MaybeUninit::<Lfs>::zeroed();
+        let mut lfs = Lfs::default();
+        let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             &env.config as *const LfsConfig,
         ));
-        assert_ok(lfs_mount(lfs.as_mut_ptr(), &env.config as *const LfsConfig));
+        assert_ok(lfs_mount(
+            &mut lfs,
+            &mut caches,
+            &env.config as *const LfsConfig,
+        ));
 
         for i in 0..count {
             let path = path_bytes(&format!("entry{i:03}"));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
             assert_ok(lfs_file_open(
-                lfs.as_mut_ptr(),
+                &mut lfs,
+                &mut caches,
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
             ));
-            assert_ok(lfs_file_close(lfs.as_mut_ptr(), file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
         }
 
         let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
         assert_ok(lfs_dir_open(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             ROOT_PATH.as_ptr(),
         ));
-        assert_ok(lfs_dir_rewind(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        let pos0 = lfs_dir_tell(lfs.as_mut_ptr(), dir.as_mut_ptr());
+        assert_ok(lfs_dir_rewind(&mut lfs, &mut caches, dir.as_mut_ptr()));
+        let pos0 = lfs_dir_tell(&mut lfs, dir.as_mut_ptr());
         assert!(pos0 >= 0, "tell after rewind");
 
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
         let mut n = 0usize;
-        while lfs_dir_read(lfs.as_mut_ptr(), dir.as_mut_ptr(), info.as_mut_ptr()) > 0 {
+        while lfs_dir_read(&mut lfs, &mut caches, dir.as_mut_ptr(), info.as_mut_ptr()) > 0 {
             n += 1;
         }
         assert_eq!(n, count + 2, "COUNT={count}: . and .. plus {count} entries");
 
-        assert_ok(lfs_dir_rewind(lfs.as_mut_ptr(), dir.as_mut_ptr()));
+        assert_ok(lfs_dir_rewind(&mut lfs, &mut caches, dir.as_mut_ptr()));
         let half = (count + 2) / 2;
         assert_ok(lfs_dir_seek(
-            lfs.as_mut_ptr(),
+            &mut lfs,
+            &mut caches,
             dir.as_mut_ptr(),
             half as u32,
         ));
-        let _pos_half = lfs_dir_tell(lfs.as_mut_ptr(), dir.as_mut_ptr());
+        let _pos_half = lfs_dir_tell(&mut lfs, dir.as_mut_ptr());
 
-        assert_ok(lfs_dir_rewind(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        let pos_rewind = lfs_dir_tell(lfs.as_mut_ptr(), dir.as_mut_ptr());
+        assert_ok(lfs_dir_rewind(&mut lfs, &mut caches, dir.as_mut_ptr()));
+        let pos_rewind = lfs_dir_tell(&mut lfs, dir.as_mut_ptr());
         assert_eq!(pos_rewind, pos0, "tell after rewind matches initial");
 
-        assert_ok(lfs_dir_close(lfs.as_mut_ptr(), dir.as_mut_ptr()));
-        assert_ok(lfs_unmount(lfs.as_mut_ptr()));
+        assert_ok(lfs_dir_close(&mut lfs, dir.as_mut_ptr()));
+        assert_ok(lfs_unmount(&mut lfs));
     }
 }

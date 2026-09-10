@@ -204,7 +204,11 @@ pub fn lfs_tortoise_detectcycles(
 ///     return err;
 /// }
 /// ```
-pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsConfig) -> i32 {
+pub fn lfs_mount_(
+    lfs: &mut super::lfs::Lfs,
+    caches: &mut super::lfs::LfsCaches,
+    cfg: *const crate::lfs_config::LfsConfig,
+) -> i32 {
     use crate::block_alloc::alloc::lfs_alloc_drop;
     use crate::dir::fetch::{lfs_dir_fetchmatch, lfs_dir_getgstate};
     use crate::dir::find::{lfs_dir_find_match, LfsDirFindMatch};
@@ -219,13 +223,12 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
     use crate::types::{LFS_BLOCK_NULL, LFS_DISK_VERSION_MAJOR, LFS_DISK_VERSION_MINOR};
     use crate::util::{lfs_min, lfs_pair_isnull};
 
-    let mut err = lfs_init(lfs, cfg);
+    let mut err = lfs_init(lfs, caches, cfg);
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
 
     unsafe {
-        let lfs = &mut *lfs;
         let cfg = &*cfg;
 
         let mut dir = crate::dir::LfsMdir {
@@ -246,7 +249,6 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
 
         let magic = b"littlefs";
         let find_match = LfsDirFindMatch {
-            lfs: lfs as *mut _,
             name: magic.as_ptr(),
             size: 8,
         };
@@ -273,7 +275,8 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
             }
 
             let tag = lfs_dir_fetchmatch(
-                lfs as *mut _ as *const core::ffi::c_void,
+                lfs,
+                caches,
                 &mut dir as *mut _,
                 &dir.tail as *const _,
                 lfs_mktag(0x7ff, 0x3ff, 0),
@@ -289,12 +292,12 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
             }
 
             if tag != 0 && !lfs_tag_isdelete(tag as crate::types::lfs_tag_t) {
-                lfs.root[0] = dir.pair[0];
-                lfs.root[1] = dir.pair[1];
+                lfs.root = dir.pair;
 
                 let mut superblock = core::mem::zeroed::<LfsSuperblock>();
                 let sbtag = lfs_dir_get(
-                    lfs as *mut _,
+                    lfs,
+                    caches,
                     &dir as *const _,
                     lfs_mktag(0x7ff, 0x3ff, 0),
                     lfs_mktag(
@@ -320,7 +323,7 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
                 }
 
                 let needssuperblock = minor_version < LFS_DISK_VERSION_MINOR as u16;
-                lfs_fs_prepsuperblock(lfs as *mut _, needssuperblock);
+                lfs_fs_prepsuperblock(lfs, needssuperblock);
 
                 if superblock.name_max != 0 {
                     if superblock.name_max > lfs.name_max {
@@ -358,7 +361,9 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
             }
 
             crate::lfs_trace!("mount: before getgstate");
-            err_inner = lfs_dir_getgstate(lfs as *mut _, &dir as *const _, &mut lfs.gstate);
+            let mut gstate = lfs.gstate;
+            err_inner = lfs_dir_getgstate(lfs, caches, &dir as *const _, &mut gstate);
+            lfs.gstate = gstate;
             crate::lfs_trace!(
                 "mount: after getgstate err={} tail={:?}",
                 err_inner,
@@ -370,7 +375,7 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
         }
 
         if err_inner != 0 {
-            lfs_deinit(lfs as *mut _);
+            lfs_deinit(lfs);
             err_inner
         } else {
             if !lfs_gstate_iszero(&lfs.gstate) {
@@ -382,7 +387,7 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
             lfs.gdisk = lfs.gstate;
 
             lfs.lookahead.start = lfs.seed % lfs.block_count;
-            lfs_alloc_drop(lfs as *mut _);
+            lfs_alloc_drop(lfs);
 
             0
         }
@@ -399,6 +404,6 @@ pub fn lfs_mount_(lfs: *mut super::lfs::Lfs, cfg: *const crate::lfs_config::LfsC
 ///
 ///
 /// ```
-pub fn lfs_unmount_(lfs: *mut super::lfs::Lfs) -> i32 {
+pub fn lfs_unmount_(lfs: &mut super::lfs::Lfs) -> i32 {
     crate::fs::init::lfs_deinit(lfs)
 }
