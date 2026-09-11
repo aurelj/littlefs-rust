@@ -10,31 +10,6 @@ use crate::lfs_type::lfs_type::LFS_TYPE_INLINESTRUCT;
 use crate::tag::{lfs_mattr, lfs_mktag};
 use crate::types::{lfs_block_t, lfs_size_t};
 
-/// Translation docs: Callback for lfs_fs_traverse_ during shrink. Returns
-/// LFS_ERR_NOTEMPTY if any in-use block is at or beyond the target threshold,
-/// preventing a shrink that would lose data.
-///
-/// C: lfs.c:5244-5251
-/// ```c
-/// static int lfs_shrink_checkblock(void *data, lfs_block_t block) {
-///     lfs_size_t threshold = *((lfs_size_t*)data);
-///     if (block >= threshold) {
-///         return LFS_ERR_NOTEMPTY;
-///     }
-///     return 0;
-/// }
-/// ```
-unsafe extern "C" fn lfs_shrink_checkblock(
-    data: *mut core::ffi::c_void,
-    block: lfs_block_t,
-) -> i32 {
-    let threshold = *(data as *const lfs_size_t);
-    if block >= threshold {
-        return LFS_ERR_NOTEMPTY;
-    }
-    0
-}
-
 /// Translation docs: Grow or shrink the filesystem to a new block_count.
 /// If shrinking, traverses all blocks to verify none above the new count
 /// are in use. Updates the superblock's block_count on disk.
@@ -109,8 +84,13 @@ pub fn lfs_fs_grow_(
             let err = super::traverse::lfs_fs_traverse_(
                 lfs,
                 caches,
-                Some(lfs_shrink_checkblock),
-                &mut threshold as *mut _ as *mut core::ffi::c_void,
+                &mut |_, block| {
+                    if block >= threshold {
+                        LFS_ERR_NOTEMPTY
+                    } else {
+                        0
+                    }
+                },
                 true,
             );
             if err != 0 {

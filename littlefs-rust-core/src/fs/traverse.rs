@@ -115,8 +115,7 @@
 pub fn lfs_fs_traverse_(
     lfs: &mut super::lfs::Lfs,
     caches: &mut crate::fs::LfsCaches,
-    cb: Option<unsafe extern "C" fn(*mut core::ffi::c_void, crate::types::lfs_block_t) -> i32>,
-    data: *mut core::ffi::c_void,
+    cb: &mut dyn FnMut(&mut super::lfs::Lfs, crate::types::lfs_block_t) -> i32,
     includeorphans: bool,
 ) -> i32 {
     use crate::dir::fetch::lfs_dir_fetch;
@@ -128,11 +127,6 @@ pub fn lfs_fs_traverse_(
     use crate::tag::{lfs_mktag, lfs_tag_type3};
     use crate::types::{lfs_block_t, LFS_BLOCK_NULL};
     use crate::util::{lfs_pair_fromle32, lfs_pair_isnull};
-
-    if cb.is_none() {
-        return 0;
-    }
-    let cb = cb.unwrap();
 
     unsafe {
         // iterate over metadata pairs
@@ -177,7 +171,7 @@ pub fn lfs_fs_traverse_(
             }
 
             for i in 0..2 {
-                let err = cb(data, dir.tail[i]);
+                let err = cb(lfs, dir.tail[i]);
                 if err != 0 {
                     return crate::lfs_pass_err!(err);
                 }
@@ -209,15 +203,7 @@ pub fn lfs_fs_traverse_(
                 lfs_pair_fromle32(&mut raw);
 
                 if u32::from(lfs_tag_type3(tag as u32)) == LFS_TYPE_CTZSTRUCT {
-                    let err = lfs_ctz_traverse(
-                        lfs,
-                        None,
-                        &mut caches.rcache,
-                        raw[0],
-                        raw[1],
-                        Some(cb),
-                        data,
-                    );
+                    let err = lfs_ctz_traverse(lfs, None, &mut caches.rcache, raw[0], raw[1], cb);
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
@@ -226,7 +212,7 @@ pub fn lfs_fs_traverse_(
                 {
                     #[allow(clippy::needless_range_loop)] // Rule 2: preserve C loop structure
                     for i in 0..2 {
-                        let err = cb(data, raw[i]);
+                        let err = cb(lfs, raw[i]);
                         if err != 0 {
                             return crate::lfs_pass_err!(err);
                         }
@@ -267,8 +253,7 @@ pub fn lfs_fs_traverse_(
                         &mut caches.rcache,
                         f_ref.ctz.head,
                         f_ref.ctz.size,
-                        Some(cb),
-                        data,
+                        cb,
                     );
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
@@ -283,8 +268,7 @@ pub fn lfs_fs_traverse_(
                         &mut caches.rcache,
                         f_ref.block,
                         f_ref.pos,
-                        Some(cb),
-                        data,
+                        cb,
                     );
                     if err != 0 {
                         return crate::lfs_pass_err!(err);

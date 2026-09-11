@@ -337,18 +337,13 @@ pub fn lfs_fs_size(lfs: &mut Lfs, caches: &mut LfsCaches) -> lfs_ssize_t {
     crate::fs::stat::lfs_fs_size_(lfs, caches)
 }
 
-/// Callback type for lfs_fs_traverse. Per lfs.h int (*cb)(void*, lfs_block_t).
-pub type LfsTraverseCb = unsafe extern "C" fn(data: *mut c_void, block: lfs_block_t) -> i32;
+/// Closure type for lfs_fs_traverse.
+pub type LfsTraverseCb = dyn FnMut(&mut Lfs, lfs_block_t) -> i32;
 
 /// Traverse through all blocks in use by the filesystem. Per lfs.h lfs_fs_traverse.
 #[inline(never)]
-pub fn lfs_fs_traverse(
-    lfs: &mut Lfs,
-    caches: &mut LfsCaches,
-    cb: LfsTraverseCb,
-    data: *mut c_void,
-) -> i32 {
-    crate::fs::traverse::lfs_fs_traverse_(lfs, caches, Some(cb), data, false)
+pub fn lfs_fs_traverse(lfs: &mut Lfs, caches: &mut LfsCaches, cb: &mut LfsTraverseCb) -> i32 {
+    crate::fs::traverse::lfs_fs_traverse_(lfs, caches, cb, false)
 }
 
 /// Attempt to make the filesystem consistent. Per lfs.h lfs_fs_mkconsistent (lfs.c:6479-6483).

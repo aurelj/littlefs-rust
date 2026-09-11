@@ -183,26 +183,6 @@ pub fn lfs_fs_stat_(
     0
 }
 
-/// Per lfs.c lfs_fs_size_count (lines 5172-5177)
-///
-/// C:
-/// ```c
-/// static int lfs_fs_size_count(void *p, lfs_block_t block) {
-///     (void)block;
-///     lfs_size_t *size = p;
-///     *size += 1;
-///     return 0;
-/// }
-/// ```
-pub unsafe extern "C" fn lfs_fs_size_count(p: *mut core::ffi::c_void, _block: lfs_block_t) -> i32 {
-    if p.is_null() {
-        return 0;
-    }
-    let size = p as *mut lfs_size_t;
-    unsafe { *size = (*size).saturating_add(1) };
-    0
-}
-
 /// Per lfs.c lfs_fs_size_ (lines 5179-5188)
 ///
 /// C:
@@ -222,8 +202,10 @@ pub fn lfs_fs_size_(lfs: &mut super::lfs::Lfs, caches: &mut crate::fs::LfsCaches
     let err = lfs_fs_traverse_(
         lfs,
         caches,
-        Some(lfs_fs_size_count),
-        &mut size as *mut _ as *mut core::ffi::c_void,
+        &mut |_, _| {
+            size = size.saturating_add(1);
+            0
+        },
         false,
     );
     if err != 0 {

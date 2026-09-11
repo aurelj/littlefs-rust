@@ -252,21 +252,19 @@ pub fn lfs_ctz_find(
 /// }
 /// ```
 pub fn lfs_ctz_traverse(
-    lfs: &crate::fs::Lfs,
+    lfs: &mut crate::fs::Lfs,
     pcache: Option<&crate::bd::LfsCache>,
     rcache: &mut crate::bd::LfsCache,
     head: lfs_block_t,
     size: lfs_size_t,
-    cb: Option<unsafe extern "C" fn(*mut core::ffi::c_void, lfs_block_t) -> i32>,
-    data: *mut core::ffi::c_void,
+    cb: &mut dyn FnMut(&mut crate::fs::Lfs, crate::types::lfs_block_t) -> i32,
 ) -> i32 {
     use crate::bd::bd::lfs_bd_read;
     use crate::util::lfs_fromle32;
 
-    if size == 0 || cb.is_none() {
+    if size == 0 {
         return 0;
     }
-    let cb = cb.unwrap();
 
     unsafe {
         let mut index_off = size - 1;
@@ -288,7 +286,7 @@ pub fn lfs_ctz_traverse(
                 }
                 iter += 1;
             }
-            let err = cb(data, current_head);
+            let err = cb(lfs, current_head);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -319,7 +317,7 @@ pub fn lfs_ctz_traverse(
 
             #[allow(clippy::needless_range_loop)] // Rule 2: preserve C loop structure
             for i in 0..count - 1 {
-                let err = cb(data, heads[i]);
+                let err = cb(lfs, heads[i]);
                 if err != 0 {
                     return crate::lfs_pass_err!(err);
                 }

@@ -34,32 +34,6 @@ pub fn lfs_alloc_drop(lfs: &mut Lfs) {
     unsafe { lfs_alloc_ckpoint(lfs) };
 }
 
-/// Per lfs.c lfs_alloc_lookahead (lines 627-637)
-///
-/// C:
-/// ```c
-/// #ifndef LFS_READONLY
-/// static int lfs_alloc_lookahead(void *p, lfs_block_t block) {
-///     lfs_t *lfs = (lfs_t*)p;
-///     lfs_block_t off = ((block - lfs->lookahead.start)
-///             + lfs->block_count) % lfs->block_count;
-///
-///     if (off < lfs->lookahead.size) {
-///         lfs->lookahead.buffer[off / 8] |= 1U << (off % 8);
-///     }
-///
-///     return 0;
-/// }
-/// #endif
-/// ```
-/// Callback wrapper for lfs_fs_traverse_: C expects (void* data, block), we pass lfs as data.
-unsafe extern "C" fn lfs_alloc_lookahead_cb(
-    data: *mut core::ffi::c_void,
-    block: lfs_block_t,
-) -> i32 {
-    lfs_alloc_lookahead(&mut *(data as *mut Lfs), block)
-}
-
 pub fn lfs_alloc_lookahead(lfs: &mut Lfs, block: lfs_block_t) -> i32 {
     unsafe {
         // off = ((block - start) + block_count) % block_count
@@ -133,8 +107,7 @@ pub fn lfs_alloc_scan(lfs: &mut Lfs, caches: &mut crate::fs::LfsCaches) -> i32 {
         let err = lfs_fs_traverse_(
             lfs,
             caches,
-            Some(lfs_alloc_lookahead_cb),
-            lfs as *const _ as *mut core::ffi::c_void,
+            &mut |lfs, block| lfs_alloc_lookahead(lfs, block),
             true,
         );
         if err != 0 {
