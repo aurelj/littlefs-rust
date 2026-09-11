@@ -219,7 +219,7 @@ pub unsafe fn test_traverse_format_attrs(
     lfs: &mut super::lfs::Lfs,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
-    out: *mut crate::dir::traverse::TraverseTestOut,
+    out: &mut crate::dir::traverse::TraverseTestOut,
 ) -> i32 {
     use crate::block_alloc::alloc::lfs_alloc_ckpoint;
     use crate::dir::commit::lfs_dir_alloc;
@@ -304,8 +304,7 @@ pub unsafe fn test_traverse_format_attrs(
             0,
             0,
             0,
-            Some(lfs_dir_traverse_test_cb),
-            out as *mut core::ffi::c_void,
+            &mut |lfs, caches, tag, buffer| lfs_dir_traverse_test_cb(lfs, caches, out, tag, buffer),
         );
         if err != 0 {
             lfs_deinit(lfs);
@@ -327,7 +326,7 @@ pub unsafe fn test_traverse_filter_gets_superblock_after_push(
     lfs: &mut super::lfs::Lfs,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
-    out: *mut crate::dir::traverse::TraverseTestOut,
+    out: &mut crate::dir::traverse::TraverseTestOut,
 ) -> i32 {
     use crate::block_alloc::alloc::lfs_alloc_ckpoint;
     use crate::dir::commit::lfs_dir_alloc;
@@ -414,8 +413,7 @@ pub unsafe fn test_traverse_filter_gets_superblock_after_push(
             0,
             1,
             0,
-            Some(lfs_dir_traverse_test_cb),
-            out as *mut core::ffi::c_void,
+            &mut |lfs, caches, tag, buffer| lfs_dir_traverse_test_cb(lfs, caches, out, tag, buffer),
         );
         if err != 0 {
             lfs_deinit(lfs);

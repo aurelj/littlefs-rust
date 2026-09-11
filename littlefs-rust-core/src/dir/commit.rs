@@ -749,17 +749,15 @@ pub fn lfs_dir_split(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_commit_size(
-    p: *mut core::ffi::c_void,
+fn lfs_dir_commit_size(
+    _lfs: &crate::fs::Lfs,
+    _caches: &mut crate::fs::LfsCaches,
+    size: &mut lfs_size_t,
     tag: lfs_tag_t,
     _buffer: *const core::ffi::c_void,
 ) -> i32 {
     use crate::tag::lfs_tag_dsize;
-    use crate::types::lfs_size_t;
-    unsafe {
-        let size = p as *mut lfs_size_t;
-        *size += lfs_tag_dsize(tag);
-    }
+    *size += lfs_tag_dsize(tag);
     0
 }
 
@@ -1147,8 +1145,9 @@ pub fn lfs_dir_compact(
                 begin,
                 end,
                 -(begin as i16),
-                Some(lfs_dir_commit_commit_raw),
-                &mut commit as *mut _ as *mut core::ffi::c_void,
+                &mut |lfs, caches, tag, buffer| {
+                    lfs_dir_commit_commit_raw(lfs, caches, &mut commit, tag, buffer)
+                },
             );
             if err != 0 {
                 if err == LFS_ERR_CORRUPT {
@@ -1472,7 +1471,6 @@ pub fn lfs_dir_splittingcompact(
         loop {
             while end_val - split > 1 {
                 let mut size: lfs_size_t = 0;
-                let mut size_ptr = size;
                 let err = lfs_dir_traverse(
                     lfs,
                     caches,
@@ -1486,13 +1484,13 @@ pub fn lfs_dir_splittingcompact(
                     split,
                     end_val,
                     -(split as i16),
-                    Some(lfs_dir_commit_size_raw),
-                    &mut size_ptr as *mut _ as *mut core::ffi::c_void,
+                    &mut |lfs, caches, tag, buffer| {
+                        lfs_dir_commit_size(lfs, caches, &mut size, tag, buffer)
+                    },
                 );
                 if err != 0 {
                     return crate::lfs_pass_err!(err);
                 }
-                size = size_ptr;
 
                 let metadata_max = lfs.cfg.as_ref().map_or(0, |c| c.metadata_max);
                 let block_size = lfs.cfg.as_ref().unwrap().block_size;
@@ -1568,16 +1566,6 @@ pub fn lfs_dir_splittingcompact(
 
         lfs_dir_compact(lfs, caches, dir, attrs, attrcount, source, begin, end_val)
     }
-}
-
-unsafe extern "C" fn lfs_dir_commit_size_raw(
-    _lfs: &crate::fs::Lfs,
-    _caches: &mut crate::fs::LfsCaches,
-    p: *mut core::ffi::c_void,
-    tag: lfs_tag_t,
-    buffer: *const core::ffi::c_void,
-) -> i32 {
-    lfs_dir_commit_size(p, tag, buffer)
 }
 
 /// Per lfs.c lfs_dir_relocatingcommit (lines 2234-2406)
@@ -1855,8 +1843,9 @@ pub fn lfs_dir_relocatingcommit(
                 0,
                 0,
                 0,
-                Some(lfs_dir_commit_commit_raw),
-                &mut commit as *mut _ as *mut core::ffi::c_void,
+                &mut |lfs, caches, tag, buffer| {
+                    lfs_dir_commit_commit_raw(lfs, caches, &mut commit, tag, buffer)
+                },
             );
             lfs_pair_fromle32(&mut dir_ref.tail);
             if err == 0 {
@@ -2027,10 +2016,10 @@ fn relocatingcommit_fixmlist(
     }
 }
 
-unsafe extern "C" fn lfs_dir_commit_commit_raw(
+fn lfs_dir_commit_commit_raw(
     lfs: &Lfs,
     caches: &mut crate::fs::LfsCaches,
-    p: *mut core::ffi::c_void,
+    commit: &mut LfsCommit,
     tag: lfs_tag_t,
     buffer: *const core::ffi::c_void,
 ) -> i32 {
@@ -2052,7 +2041,6 @@ unsafe extern "C" fn lfs_dir_commit_commit_raw(
             preview
         );
     }
-    let commit = p as *mut LfsCommit;
     lfs_dir_commitattr(lfs, caches, commit, tag, buffer)
 }
 

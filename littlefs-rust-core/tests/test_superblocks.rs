@@ -85,7 +85,7 @@ fn test_traverse_attrs_callback_order() {
             &mut lfs,
             &mut caches,
             &env.config as *const LfsConfig,
-            &mut out as *mut _,
+            &mut out,
         )
     });
 
@@ -109,7 +109,7 @@ fn test_traverse_filter_gets_superblock_after_push() {
             &mut lfs,
             &mut caches,
             &env.config as *const LfsConfig,
-            &mut out as *mut _,
+            &mut out,
         )
     });
 
