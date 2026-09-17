@@ -1,6 +1,7 @@
 //! Directory traverse. Per lfs.c lfs_dir_traverse, lfs_dir_getslice, lfs_dir_get, lfs_dir_getread.
 
 use crate::bd::LfsCache;
+use crate::bd::Storage;
 use crate::dir::LfsMdir;
 use crate::types::{lfs_block_t, lfs_off_t, lfs_size_t, lfs_stag_t, lfs_tag_t};
 
@@ -75,8 +76,8 @@ use crate::types::{lfs_block_t, lfs_off_t, lfs_size_t, lfs_stag_t, lfs_tag_t};
 ///     return LFS_ERR_NOENT;
 /// }
 /// ```
-pub fn lfs_dir_getslice(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_getslice<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     gmask: lfs_tag_t,
@@ -197,8 +198,8 @@ pub fn lfs_dir_getslice(
 ///             0, buffer, lfs_tag_size(gtag));
 /// }
 /// ```
-pub fn lfs_dir_get(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_get<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     gmask: lfs_tag_t,
@@ -240,8 +241,8 @@ pub fn lfs_dir_get(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_getread(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_getread<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     pcache: *const LfsCache,
@@ -400,8 +401,8 @@ pub fn lfs_dir_getread(
 ///     struct lfs_diskoff disk;
 /// };
 /// ```
-fn lfs_dir_traverse_filter(
-    lfs: &crate::fs::Lfs,
+fn lfs_dir_traverse_filter<S: Storage>(
+    lfs: &crate::fs::Lfs<S>,
     _caches: &mut crate::fs::LfsCaches,
     filtertag: &mut lfs_tag_t,
     tag: lfs_tag_t,
@@ -691,11 +692,11 @@ struct LfsDirTraverseStack {
 /// Helper: single place where the traverse callback is invoked.
 /// C: `res = cb(data, tag + LFS_MKTAG(0, diff, 0), buffer);`
 #[inline(always)]
-fn dispatch_tag(
-    lfs: &crate::fs::Lfs,
+fn dispatch_tag<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     cb: &mut dyn FnMut(
-        &crate::fs::Lfs,
+        &mut crate::fs::Lfs<S>,
         &mut crate::fs::LfsCaches,
         lfs_tag_t,
         *const core::ffi::c_void,
@@ -709,8 +710,8 @@ fn dispatch_tag(
     cb(lfs, caches, out_tag, buffer)
 }
 
-pub fn lfs_dir_traverse(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_traverse<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     off: lfs_off_t,
@@ -723,7 +724,7 @@ pub fn lfs_dir_traverse(
     end: u16,
     diff: i16,
     cb: &mut dyn FnMut(
-        &crate::fs::Lfs,
+        &mut crate::fs::Lfs<S>,
         &mut crate::fs::LfsCaches,
         lfs_tag_t,
         *const core::ffi::c_void,
@@ -1115,8 +1116,8 @@ pub struct TraverseTestOut {
     pub first_bytes: [u8; 8],
 }
 
-pub(crate) unsafe fn lfs_dir_traverse_test_cb(
-    lfs: &crate::fs::Lfs,
+pub(crate) unsafe fn lfs_dir_traverse_test_cb<S: Storage>(
+    lfs: &crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     out: &mut TraverseTestOut,
     tag: lfs_tag_t,

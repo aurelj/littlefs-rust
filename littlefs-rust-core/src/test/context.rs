@@ -8,10 +8,9 @@ const DEFAULT_BLOCK_COUNT: u32 = 128;
 
 /// Env + Lfs in one. Owns RAM BD, config, buffers. Use new(), then format_fs/mount_fs.
 pub struct TestContext {
-    pub ram: RamStorage,
     pub config: LfsConfig,
-    lfs: Lfs,
-    caches: LfsCaches,
+    pub lfs: Lfs<RamStorage>,
+    pub caches: LfsCaches,
     _read_buf: alloc::vec::Vec<u8>,
     _prog_buf: alloc::vec::Vec<u8>,
     _lookahead_buf: alloc::vec::Vec<u8>,
@@ -32,15 +31,14 @@ impl TestContext {
         config.lookahead_buffer = lookahead_buf.as_ptr() as *mut core::ffi::c_void;
 
         let mut ctx = Self {
-            ram,
             config,
-            lfs: Lfs::default(),
+            lfs: Lfs::new(ram),
             caches: LfsCaches::default(),
             _read_buf: read_buf,
             _prog_buf: prog_buf,
             _lookahead_buf: lookahead_buf,
         };
-        ctx.config.context = &mut ctx.ram as *mut RamStorage as *mut core::ffi::c_void;
+        ctx.config.context = &mut ctx.lfs.storage as *mut RamStorage as *mut core::ffi::c_void;
         ctx.config.read_buffer = ctx._read_buf.as_mut_ptr() as *mut core::ffi::c_void;
         ctx.config.prog_buffer = ctx._prog_buf.as_mut_ptr() as *mut core::ffi::c_void;
         ctx.config.lookahead_buffer = ctx._lookahead_buf.as_mut_ptr() as *mut core::ffi::c_void;

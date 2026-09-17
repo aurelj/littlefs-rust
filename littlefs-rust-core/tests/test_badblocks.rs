@@ -13,7 +13,7 @@ use common::{
 };
 use littlefs_rust_core::{
     lfs_file_close, lfs_file_open, lfs_file_read, lfs_file_write, lfs_format, lfs_mkdir, lfs_mount,
-    lfs_stat, lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsFile, LfsInfo, LFS_ERR_CORRUPT,
+    lfs_stat, lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsFile, LfsInfo, Storage, LFS_ERR_CORRUPT,
     LFS_ERR_NOSPC,
 };
 use rstest::rstest;
@@ -57,7 +57,7 @@ fn test_badblocks_single(
         // C: lfs_emubd_setwear(cfg, badblock, 0xffffffff)
         env.bd.set_wear(badblock, 0xffffffff);
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.bd);
         let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
             &mut lfs,
@@ -205,7 +205,7 @@ fn test_badblocks_region_corruption(
         env.bd.set_wear(i + 2, 0xffffffff);
     }
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -263,7 +263,7 @@ fn test_badblocks_alternating_corruption(
         env.bd.set_wear((2 * i) + 2, 0xffffffff);
     }
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -316,7 +316,7 @@ fn test_badblocks_superblocks(
     env.bd.set_wear(0, 0xffffffff);
     env.bd.set_wear(1, 0xffffffff);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
     let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     assert_eq!(
@@ -333,7 +333,7 @@ fn test_badblocks_superblocks(
 
 // ── Helpers shared by region/alternating tests ──────────────────────────────
 
-fn badblocks_create_dirs_and_files(lfs: &mut Lfs, caches: &mut LfsCaches) {
+fn badblocks_create_dirs_and_files<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches) {
     for i in 1..10 {
         let mut buffer = [0u8; 1024];
         for j in 0..NAMEMULT {
@@ -374,7 +374,7 @@ fn badblocks_create_dirs_and_files(lfs: &mut Lfs, caches: &mut LfsCaches) {
     }
 }
 
-fn badblocks_verify_dirs_and_files(lfs: &mut Lfs, caches: &mut LfsCaches) {
+fn badblocks_verify_dirs_and_files<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches) {
     for i in 1..10 {
         let mut buffer = [0u8; 1024];
         for j in 0..NAMEMULT {

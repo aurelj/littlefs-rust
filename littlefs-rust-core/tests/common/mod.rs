@@ -9,7 +9,7 @@ pub mod dump;
 pub mod powerloss;
 
 use core::cell::RefCell;
-use littlefs_rust_core::{LfsConfig, LFS_ERR_CORRUPT};
+use littlefs_rust_core::{error::from_empty_result, Error, LfsConfig, Storage};
 
 /// Initialize env_logger for tests that use logging. Idempotent.
 pub fn init_logger() {
@@ -45,67 +45,31 @@ impl RamStorage {
             .checked_mul(self.block_size as usize)
             .expect("block overflow")
     }
+}
 
-    pub fn read(&mut self, block: u32, off: u32, buf: &mut [u8]) {
+impl Storage for RamStorage {
+    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
         let base = self.block_offset(block);
-        let start = base + off as usize;
+        let start = base + offset as usize;
         let end = start + buf.len();
         buf.copy_from_slice(&self.data[start..end]);
+        Ok(())
     }
 
-    pub fn prog(&mut self, block: u32, off: u32, buf: &[u8]) {
+    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
         let base = self.block_offset(block);
-        let start = base + off as usize;
-        let end = start + buf.len();
-        self.data[start..end].copy_from_slice(buf);
+        let start = base + offset as usize;
+        let end = start + data.len();
+        self.data[start..end].copy_from_slice(data);
+        Ok(())
     }
 
-    pub fn erase(&mut self, block: u32) {
+    fn erase(&mut self, block: u32) -> Result<(), Error> {
         let base = self.block_offset(block);
         let end = base + self.block_size as usize;
         self.data[base..end].fill(0xff);
+        Ok(())
     }
-}
-
-unsafe extern "C" fn ram_read(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *mut u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut RamStorage;
-    let ram = &mut *ctx;
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts_mut(buffer, size);
-    ram.read(block, off, buf);
-    0
-}
-
-unsafe extern "C" fn ram_prog(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *const u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut RamStorage;
-    let ram = &mut *ctx;
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts(buffer, size);
-    ram.prog(block, off, buf);
-    0
-}
-
-unsafe extern "C" fn ram_erase(cfg: *const LfsConfig, block: u32) -> i32 {
-    let ctx = (*cfg).context as *mut RamStorage;
-    let ram = &mut *ctx;
-    ram.erase(block);
-    0
-}
-
-unsafe extern "C" fn ram_sync(_cfg: *const LfsConfig) -> i32 {
-    0
 }
 
 /// Mode determining how "bad-blocks" behave during testing.
@@ -179,72 +143,35 @@ impl BadBlockRamStorage {
     }
 }
 
-/// C: lfs_emubd_read — block bad check (lfs_emubd.c:303-308)
-/// Only READERROR triggers on read; all other behaviors allow the read through.
-unsafe extern "C" fn badblock_read(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *mut u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut BadBlockRamStorage;
-    let badblock = &mut *ctx;
-    if badblock.is_bad(block) && badblock.behavior == BadBlockBehavior::ReadError {
-        return LFS_ERR_CORRUPT;
-    }
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts_mut(buffer, size);
-    badblock.ram.read(block, off, buf);
-    0
-}
-
-/// C: lfs_emubd_prog — block bad check (lfs_emubd.c:358-370)
-/// PROGERROR → return LFS_ERR_CORRUPT
-/// PROGNOOP or ERASENOOP → return 0 (silently skip the prog)
-/// All others → prog normally
-unsafe extern "C" fn badblock_prog(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *const u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut BadBlockRamStorage;
-    let badblock = &mut *ctx;
-    if badblock.is_bad(block) {
-        match badblock.behavior {
-            BadBlockBehavior::ProgError => return LFS_ERR_CORRUPT,
-            BadBlockBehavior::ProgNoop | BadBlockBehavior::EraseNoop => return 0,
-            _ => {}
+impl Storage for BadBlockRamStorage {
+    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+        if self.is_bad(block) && self.behavior == BadBlockBehavior::ReadError {
+            return Err(Error::Corrupt);
         }
+        self.ram.read(block, offset, buf)
     }
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts(buffer, size);
-    badblock.ram.prog(block, off, buf);
-    0
-}
 
-/// C: lfs_emubd_erase — block bad check (lfs_emubd.c:454-468)
-/// ERASEERROR → return LFS_ERR_CORRUPT
-/// ERASENOOP → return 0 (silently skip the erase)
-/// All others → erase normally
-unsafe extern "C" fn badblock_erase(cfg: *const LfsConfig, block: u32) -> i32 {
-    let ctx = (*cfg).context as *mut BadBlockRamStorage;
-    let badblock = &mut *ctx;
-    if badblock.is_bad(block) {
-        match badblock.behavior {
-            BadBlockBehavior::EraseError => return LFS_ERR_CORRUPT,
-            BadBlockBehavior::EraseNoop => return 0,
-            _ => {}
+    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+        if self.is_bad(block) {
+            match self.behavior {
+                BadBlockBehavior::ProgError => return Err(Error::Corrupt),
+                BadBlockBehavior::ProgNoop | BadBlockBehavior::EraseNoop => return Ok(()),
+                _ => {}
+            }
         }
+        self.ram.write(block, offset, data)
     }
-    badblock.ram.erase(block);
-    0
-}
 
-unsafe extern "C" fn badblock_sync(_cfg: *const LfsConfig) -> i32 {
-    0
+    fn erase(&mut self, block: u32) -> Result<(), Error> {
+        if self.is_bad(block) {
+            match self.behavior {
+                BadBlockBehavior::EraseError => return Err(Error::Corrupt),
+                BadBlockBehavior::EraseNoop => return Ok(()),
+                _ => {}
+            }
+        }
+        self.ram.erase(block)
+    }
 }
 
 /// Holds RAM storage, config, and buffers. Keeps pointers valid for lfs_* calls.
@@ -275,10 +202,6 @@ pub fn config_with_geometry(block_size: u32, block_count: u32) -> TestEnv {
 
     let config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(ram_read),
-        prog: Some(ram_prog),
-        erase: Some(ram_erase),
-        sync: Some(ram_sync),
         read_size: 16,
         prog_size: 16,
         block_size,
@@ -320,10 +243,6 @@ pub fn default_config(block_count: u32) -> TestEnv {
 
     let config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(ram_read),
-        prog: Some(ram_prog),
-        erase: Some(ram_erase),
-        sync: Some(ram_sync),
         read_size: 16,
         prog_size: 16,
         block_size,
@@ -378,33 +297,29 @@ pub struct ClonedConfig {
 
 /// Clone a TestEnv's config with a different block_count, sharing the same
 /// RAM context pointer. Caller must ensure the original TestEnv outlives this.
-pub fn clone_config_with_block_count(env: &TestEnv, block_count: u32) -> ClonedConfig {
-    let bs = env.config.block_size as usize;
+pub fn clone_config_with_block_count(config: &LfsConfig, block_count: u32) -> ClonedConfig {
+    let bs = config.block_size as usize;
     let mut read_buf = vec![0u8; bs];
     let mut prog_buf = vec![0u8; bs];
     let mut lookahead_buf = vec![0u8; bs];
     let config = LfsConfig {
-        context: env.config.context,
-        read: env.config.read,
-        prog: env.config.prog,
-        erase: env.config.erase,
-        sync: env.config.sync,
-        read_size: env.config.read_size,
-        prog_size: env.config.prog_size,
-        block_size: env.config.block_size,
+        context: config.context,
+        read_size: config.read_size,
+        prog_size: config.prog_size,
+        block_size: config.block_size,
         block_count,
-        block_cycles: env.config.block_cycles,
-        cache_size: env.config.cache_size,
-        lookahead_size: env.config.lookahead_size,
-        compact_thresh: env.config.compact_thresh,
+        block_cycles: config.block_cycles,
+        cache_size: config.cache_size,
+        lookahead_size: config.lookahead_size,
+        compact_thresh: config.compact_thresh,
         read_buffer: read_buf.as_mut_ptr() as *mut core::ffi::c_void,
         prog_buffer: prog_buf.as_mut_ptr() as *mut core::ffi::c_void,
         lookahead_buffer: lookahead_buf.as_mut_ptr() as *mut core::ffi::c_void,
-        name_max: env.config.name_max,
-        file_max: env.config.file_max,
-        attr_max: env.config.attr_max,
-        metadata_max: env.config.metadata_max,
-        inline_max: env.config.inline_max,
+        name_max: config.name_max,
+        file_max: config.file_max,
+        attr_max: config.attr_max,
+        metadata_max: config.metadata_max,
+        inline_max: config.inline_max,
     };
     ClonedConfig {
         config,
@@ -442,10 +357,6 @@ pub fn config_badblock_with_behavior(
 
     let config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(badblock_read),
-        prog: Some(badblock_prog),
-        erase: Some(badblock_erase),
-        sync: Some(badblock_sync),
         read_size: 16,
         prog_size: 16,
         block_size,
@@ -528,12 +439,10 @@ pub fn assert_err(expected: i32, actual: i32) {
 }
 
 /// Check if block has "littlefs" at offset 8 or 12 (layout varies by commit path).
-fn block_has_magic(config: *const LfsConfig, block: u32) -> bool {
+fn block_has_magic<S: Storage>(lfs: &mut littlefs_rust_core::Lfs<S>, block: u32) -> bool {
     let mut buf = [0u8; 24];
-    let err = unsafe {
-        let read = (*config).read.expect("read callback");
-        read(config, block, 0, buf.as_mut_ptr(), 24)
-    };
+    let res = lfs.storage.read(block, 0, &mut buf);
+    let err = from_empty_result(res);
     if err != 0 {
         return false;
     }
@@ -542,45 +451,15 @@ fn block_has_magic(config: *const LfsConfig, block: u32) -> bool {
 
 /// Assert "littlefs" in blocks 0 and 1 (at offset 8 or 12 depending on commit path).
 /// Both blocks must have magic per upstream.
-pub fn assert_superblock_magic(config: *const LfsConfig) {
-    let has_0 = block_has_magic(config, 0);
-    let has_1 = block_has_magic(config, 1);
+pub fn assert_superblock_magic<S: Storage>(lfs: &mut littlefs_rust_core::Lfs<S>) {
+    let has_0 = block_has_magic(lfs, 0);
+    let has_1 = block_has_magic(lfs, 1);
     assert!(
         has_0 && has_1,
         "both blocks 0 and 1 must have MAGIC: block 0={} block 1={}",
         has_0,
         has_1
     );
-}
-
-/// Invoke config read callback for raw block access (e.g. test_superblocks_magic).
-pub fn read_block_raw(config: *const LfsConfig, block: u32, off: u32, buf: &mut [u8]) -> i32 {
-    unsafe {
-        let read = (*config).read.expect("read callback");
-        read(config, block, off, buf.as_mut_ptr(), buf.len() as u32)
-    }
-}
-
-/// Invoke config prog callback for raw block write, bypassing the FS.
-/// Mirrors read_block_raw but for writes. Used for corruption injection (test_evil).
-///
-/// C: lfs_emubd_prog via cfg->prog callback
-pub fn write_block_raw(config: *const LfsConfig, block: u32, off: u32, data: &[u8]) -> i32 {
-    unsafe {
-        let prog = (*config).prog.expect("prog callback");
-        prog(config, block, off, data.as_ptr(), data.len() as u32)
-    }
-}
-
-/// Invoke config erase callback for raw block erase, bypassing the FS.
-/// Used for corruption injection (test_evil_invalid_ctz_pointer).
-///
-/// C: cfg->erase(cfg, block)
-pub fn erase_block_raw(config: *const LfsConfig, block: u32) -> i32 {
-    unsafe {
-        let erase = (*config).erase.expect("erase callback");
-        erase(config, block)
-    }
 }
 
 /// Pretty-print first `len` bytes of block for inspection. Used when debugging layout.
@@ -615,8 +494,8 @@ pub fn path_bytes(s: &str) -> Vec<u8> {
 }
 
 /// Read directory entry names (excluding "." and "..") from path. For use in dir tests.
-pub fn dir_entry_names(
-    lfs: &mut littlefs_rust_core::Lfs,
+pub fn dir_entry_names<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     _config: *const LfsConfig,
     path_str: &str,
@@ -680,7 +559,7 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
     };
 
     init_context(env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     if err != 0 {
@@ -731,8 +610,8 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
 
 /// Get the metadata block number (`m.pair[0]`) for a directory while mounted.
 /// Caller must unmount before corrupting the returned block.
-pub fn dir_block(
-    lfs: &mut littlefs_rust_core::Lfs,
+pub fn dir_block<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     dir_path: &str,
 ) -> u32 {
@@ -741,8 +620,8 @@ pub fn dir_block(
 
 /// Get both metadata block numbers (`m.pair[0]`, `m.pair[1]`) for a directory while mounted.
 /// Used by fix_relocation tests to set wear on dir pairs.
-pub fn dir_pair(
-    lfs: &mut littlefs_rust_core::Lfs,
+pub fn dir_pair<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     dir_path: &str,
 ) -> [u32; 2] {
@@ -760,13 +639,11 @@ pub fn dir_pair(
 /// Mirrors upstream test_move.toml corruption: find last non-erased (0xff) byte,
 /// then set bytes [off-3..off] to 0x00 (BLOCK_SIZE & 0xff for BLOCK_SIZE=512).
 /// Must be called while FS is unmounted.
-pub fn corrupt_block(env: &mut TestEnv, block: u32) {
+pub fn corrupt_block<S: Storage>(mut storage: S, block: u32) {
     let block_size = BLOCK_SIZE as usize;
     let mut buffer = vec![0u8; block_size];
-    assert_eq!(
-        read_block_raw(&env.config as *const LfsConfig, block, 0, &mut buffer),
-        0
-    );
+    let res = storage.read(block, 0, &mut buffer);
+    assert!(res.is_ok());
 
     let mut off = block_size as i32 - 1;
     while off >= 0 && buffer[off as usize] == 0xff {
@@ -777,8 +654,8 @@ pub fn corrupt_block(env: &mut TestEnv, block: u32) {
     let start = (off - 3) as usize;
     buffer[start..start + 3].fill(0x00);
 
-    env.ram.erase(block);
-    env.ram.prog(block, 0, &buffer);
+    let _ = storage.erase(block);
+    let _ = storage.write(block, 0, &buffer);
 }
 
 /// Build test environment with the given block_count and inline_max.
@@ -802,7 +679,7 @@ pub fn config_with_inline_max(block_count: u32, inline_max: i32) -> TestEnv {
 pub fn format_and_read_superblock_blocks(env: &mut TestEnv) -> Result<(Vec<u8>, Vec<u8>), i32> {
     use littlefs_rust_core::{lfs_format, Lfs, LfsCaches};
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     if err != 0 {
@@ -812,10 +689,10 @@ pub fn format_and_read_superblock_blocks(env: &mut TestEnv) -> Result<(Vec<u8>, 
     let block_size = env.config.block_size as usize;
     let mut block0 = vec![0u8; block_size];
     let mut block1 = vec![0u8; block_size];
-    let err0 = read_block_raw(&env.config as *const LfsConfig, 0, 0, &mut block0);
-    let err1 = read_block_raw(&env.config as *const LfsConfig, 1, 0, &mut block1);
-    if err0 != 0 || err1 != 0 {
-        return Err(if err0 != 0 { err0 } else { err1 });
+    let res0 = env.ram.read(0, 0, &mut block0);
+    let res1 = env.ram.read(1, 0, &mut block1);
+    if res0.is_err() || res1.is_err() {
+        return Err(from_empty_result(if res0.is_err() { res0 } else { res1 }));
     }
     Ok((block0, block1))
 }
@@ -910,78 +787,44 @@ impl WearLevelingBd {
     }
 }
 
-/// C: lfs_emubd_read — wear check (lfs_emubd.c:303-308)
-/// Only READERROR triggers on read for worn blocks.
-unsafe extern "C" fn wear_read(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *mut u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut WearLevelingBd;
-    let bd = &mut *ctx;
-    if bd.is_worn(block) && bd.badblock_behavior == BadBlockBehavior::ReadError {
-        return LFS_ERR_CORRUPT;
-    }
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts_mut(buffer, size);
-    bd.ram.read(block, off, buf);
-    0
-}
-
-/// C: lfs_emubd_prog — wear check (lfs_emubd.c:358-370)
-/// PROGERROR → LFS_ERR_CORRUPT
-/// PROGNOOP or ERASENOOP → return 0 (skip prog)
-unsafe extern "C" fn wear_prog(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *const u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut WearLevelingBd;
-    let bd = &mut *ctx;
-    if bd.is_worn(block) {
-        match bd.badblock_behavior {
-            BadBlockBehavior::ProgError => return LFS_ERR_CORRUPT,
-            BadBlockBehavior::ProgNoop | BadBlockBehavior::EraseNoop => return 0,
-            _ => {}
+impl Storage for WearLevelingBd {
+    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+        if self.is_worn(block) && self.badblock_behavior == BadBlockBehavior::ReadError {
+            return Err(Error::Corrupt);
         }
+        self.ram.read(block, offset, buf)
     }
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts(buffer, size);
-    bd.ram.prog(block, off, buf);
-    0
-}
 
-/// C: lfs_emubd_erase — wear tracking + bad check (lfs_emubd.c:453-469)
-/// If erase_cycles > 0 and block is worn:
-///   ERASEERROR → LFS_ERR_CORRUPT
-///   ERASENOOP → return 0 (skip erase)
-/// If not worn: increment wear, then erase.
-unsafe extern "C" fn wear_erase(cfg: *const LfsConfig, block: u32) -> i32 {
-    let ctx = (*cfg).context as *mut WearLevelingBd;
-    let bd = &mut *ctx;
-    // C: if (bd->cfg->erase_cycles) { ... }
-    if bd.erase_cycles > 0 {
-        if bd.wear[block as usize] >= bd.erase_cycles {
-            match bd.badblock_behavior {
-                BadBlockBehavior::EraseError => return LFS_ERR_CORRUPT,
-                BadBlockBehavior::EraseNoop => return 0,
+    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+        if self.is_worn(block) {
+            match self.badblock_behavior {
+                BadBlockBehavior::ProgError => return Err(Error::Corrupt),
+                BadBlockBehavior::ProgNoop | BadBlockBehavior::EraseNoop => return Ok(()),
                 _ => {}
             }
-        } else {
-            bd.wear[block as usize] += 1;
         }
+        self.ram.write(block, offset, data)
     }
-    // C: if (bd->cfg->erase_value != -1) { memset(..., erase_value, ...); }
-    if bd.erase_value != -1 {
-        let base = bd.ram.block_offset(block);
-        let end = base + bd.ram.block_size as usize;
-        bd.ram.data[base..end].fill(bd.erase_value as u8);
+
+    fn erase(&mut self, block: u32) -> Result<(), Error> {
+        if self.erase_cycles > 0 {
+            if self.wear[block as usize] >= self.erase_cycles {
+                match self.badblock_behavior {
+                    BadBlockBehavior::EraseError => return Err(Error::Corrupt),
+                    BadBlockBehavior::EraseNoop => return Ok(()),
+                    _ => {}
+                }
+            } else {
+                self.wear[block as usize] += 1;
+            }
+        }
+        if self.erase_value != -1 {
+            let base = self.ram.block_offset(block);
+            let end = base + self.ram.block_size as usize;
+            self.ram.data[base..end].fill(self.erase_value as u8);
+        }
+        Ok(())
     }
-    0
 }
 
 unsafe extern "C" fn wear_sync(_cfg: *const LfsConfig) -> i32 {
@@ -1017,10 +860,6 @@ pub fn config_with_wear_leveling_behavior(
 
     let config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(wear_read),
-        prog: Some(wear_prog),
-        erase: Some(wear_erase),
-        sync: Some(wear_sync),
         read_size: 16,
         prog_size: 16,
         block_size,
@@ -1067,10 +906,6 @@ pub fn config_with_wear_leveling_full(
 
     let config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(wear_read),
-        prog: Some(wear_prog),
-        erase: Some(wear_erase),
-        sync: Some(wear_sync),
         read_size: 16,
         prog_size: 16,
         block_size,
@@ -1157,8 +992,8 @@ pub fn advance_prng(state: &mut u32, n: u32) {
 ///     lfs_file_write(&lfs, &file, buffer, chunk) => chunk;
 /// }
 /// ```
-pub fn write_prng_file(
-    lfs: &mut littlefs_rust_core::Lfs,
+pub fn write_prng_file<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,
@@ -1192,8 +1027,8 @@ pub fn write_prng_file(
 
 /// Like write_prng_file but returns Err on write failure (e.g. power-loss LFS_ERR_IO).
 /// Use in power-loss tests where writes can legitimately fail.
-pub fn write_prng_file_result(
-    lfs: &mut littlefs_rust_core::Lfs,
+pub fn write_prng_file_result<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,
@@ -1240,8 +1075,8 @@ pub fn write_prng_file_result(
 ///     }
 /// }
 /// ```
-pub fn verify_prng_file(
-    lfs: &mut littlefs_rust_core::Lfs,
+pub fn verify_prng_file<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,
@@ -1279,8 +1114,8 @@ pub fn verify_prng_file(
 
 /// Same as verify_prng_file but uses existing PRNG state (for verifying a tail after advance).
 /// Used when reading SIZE2..SIZE1 in test_files_rewrite (PRNG was advanced by SIZE2 from seed 1).
-pub fn verify_prng_file_with_state(
-    lfs: &mut littlefs_rust_core::Lfs,
+pub fn verify_prng_file_with_state<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
     size: u32,

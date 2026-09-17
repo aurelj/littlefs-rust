@@ -1,6 +1,7 @@
 //! File operations. Per lfs.c lfs_file_opencfg_, lfs_file_close_, lfs_file_sync_, etc.
 
 use crate::bd::bd::{lfs_bd_read, lfs_cache_drop, lfs_cache_zero};
+use crate::bd::Storage;
 use crate::dir::traverse::lfs_dir_getread;
 use crate::dir::LfsMdir;
 use crate::file::ctz::lfs_ctz_find;
@@ -191,8 +192,8 @@ use crate::util::lfs_min;
 ///     return err;
 /// }
 /// ```
-pub fn lfs_file_opencfg_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_opencfg_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     path: *const i8,
@@ -433,8 +434,8 @@ static LFS_FILE_DEFAULTS: LfsFileConfig = LfsFileConfig {
     attr_count: 0,
 };
 
-pub fn lfs_file_open_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_open_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     path: *const i8,
@@ -448,8 +449,8 @@ pub fn lfs_file_open_(
 /// Translation docs: Sync if dirty, remove from mlist, free cache buffer if we allocated it.
 ///
 /// C: lfs.c:3246-3264
-pub fn lfs_file_close_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_close_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
 ) -> i32 {
@@ -554,8 +555,8 @@ pub fn lfs_file_close_(
 ///     }
 /// }
 /// ```
-pub fn lfs_file_relocate(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_relocate<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
 ) -> i32 {
@@ -678,8 +679,8 @@ pub fn lfs_file_relocate(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_file_outline(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_outline<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
 ) -> i32 {
@@ -784,8 +785,8 @@ pub fn lfs_file_outline(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_file_flush(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_flush<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
 ) -> i32 {
@@ -942,8 +943,8 @@ pub fn lfs_file_flush(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_file_sync_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_sync_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
 ) -> i32 {
@@ -1026,8 +1027,8 @@ pub fn lfs_file_sync_(
 /// Uses file cache for block caching; dir_getread for inline, bd_read for CTZ.
 ///
 /// C: lfs.c:3493-3551
-pub fn lfs_file_flushedread(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_flushedread<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     buffer: *mut core::ffi::c_void,
@@ -1125,8 +1126,8 @@ pub fn lfs_file_flushedread(
 /// Translation docs: Read file. Asserts RDONLY; flushes pending writes if any; delegates to flushedread.
 ///
 /// C: lfs.c:3553-3570
-pub fn lfs_file_read_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_read_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     buffer: *mut core::ffi::c_void,
@@ -1237,8 +1238,8 @@ pub fn lfs_file_read_(
 ///     return size;
 /// }
 /// ```
-pub fn lfs_file_flushedwrite(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_flushedwrite<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     buffer: *const core::ffi::c_void,
@@ -1398,8 +1399,8 @@ pub fn lfs_file_flushedwrite(
 ///     return nsize;
 /// }
 /// ```
-pub fn lfs_file_write_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_write_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     buffer: *const core::ffi::c_void,
@@ -1455,8 +1456,8 @@ pub fn lfs_file_write_(
 /// May avoid flush if new pos is in current cache (reading path).
 ///
 /// C: lfs.c:3700-3751
-pub fn lfs_file_seek_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_seek_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     off: crate::types::lfs_soff_t,
@@ -1602,8 +1603,8 @@ pub fn lfs_file_seek_(
 /// }
 /// #endif
 /// ```
-pub fn lfs_file_truncate_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_truncate_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
     size: lfs_off_t,
@@ -1726,7 +1727,10 @@ pub fn lfs_file_truncate_(
 ///     return file->pos;
 /// }
 /// ```
-pub fn lfs_file_tell_(_lfs: &crate::fs::Lfs, file: *const LfsFile) -> crate::types::lfs_soff_t {
+pub fn lfs_file_tell_<S: Storage>(
+    _lfs: &crate::fs::Lfs<S>,
+    file: *const LfsFile,
+) -> crate::types::lfs_soff_t {
     unsafe { (*file).pos as crate::types::lfs_soff_t }
 }
 
@@ -1735,8 +1739,8 @@ pub fn lfs_file_tell_(_lfs: &crate::fs::Lfs, file: *const LfsFile) -> crate::typ
 /// Translation docs: Seek to start of file.
 ///
 /// C: lfs.c:3840-3850
-pub fn lfs_file_rewind_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_file_rewind_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     file: *mut LfsFile,
 ) -> i32 {
@@ -1767,7 +1771,10 @@ pub fn lfs_file_rewind_(
 ///     return file->ctz.size;
 /// }
 /// ```
-pub fn lfs_file_size_(_lfs: &crate::fs::Lfs, file: *const LfsFile) -> crate::types::lfs_soff_t {
+pub fn lfs_file_size_<S: Storage>(
+    _lfs: &crate::fs::Lfs<S>,
+    file: *const LfsFile,
+) -> crate::types::lfs_soff_t {
     unsafe {
         if ((*file).flags as i32 & LFS_F_WRITING) != 0 {
             return crate::util::lfs_max((*file).pos, (*file).ctz.size) as crate::types::lfs_soff_t;

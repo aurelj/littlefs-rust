@@ -32,7 +32,7 @@ fn test_entries_grow() {
     let mut env = env_with_cache_512();
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -138,7 +138,7 @@ fn test_entries_shrink() {
     let mut env = env_with_cache_512();
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -244,7 +244,7 @@ fn test_entries_spill() {
     let mut env = env_with_cache_512();
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -312,7 +312,7 @@ fn test_entries_push_spill() {
     let mut env = env_with_cache_512();
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -434,7 +434,7 @@ fn test_entries_drop() {
     let mut env = env_with_cache_512();
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -526,7 +526,7 @@ fn test_entries_create_too_big() {
     let mut env = env_with_cache_512();
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -592,7 +592,7 @@ fn test_entries_resize_too_big() {
     let mut env = env_with_cache_512_2048_blocks();
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,

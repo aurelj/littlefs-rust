@@ -1,6 +1,7 @@
 //! Initialization. Per lfs.c lfs_init, lfs_deinit.
 
 use crate::bd::bd::lfs_cache_zero;
+use crate::bd::Storage;
 use crate::types::{LFS_ATTR_MAX, LFS_BLOCK_NULL, LFS_FILE_MAX, LFS_NAME_MAX};
 use crate::util::{lfs_min, lfs_npw2};
 
@@ -182,8 +183,8 @@ use crate::util::{lfs_min, lfs_npw2};
 /// }
 /// ```
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn lfs_init(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_init<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
 ) -> i32 {
@@ -192,12 +193,6 @@ pub fn lfs_init(
 
         // check that bool is a truthy-preserving type (C: (bool)0x80000000)
         crate::lfs_assert!(0x8000_0000u32 != 0);
-
-        // check that the required io functions are provided
-        crate::lfs_assert!(cfg.read.is_some());
-        crate::lfs_assert!(cfg.prog.is_some());
-        crate::lfs_assert!(cfg.erase.is_some());
-        crate::lfs_assert!(cfg.sync.is_some());
 
         // validate that the lfs-cfg sizes were initiated properly
         crate::lfs_assert!(cfg.read_size != 0);
@@ -320,7 +315,7 @@ pub fn lfs_init(
 ///
 ///
 /// ```
-pub fn lfs_deinit(_lfs: &mut super::lfs::Lfs) -> i32 {
+pub fn lfs_deinit<S: Storage>(_lfs: &mut super::lfs::Lfs<S>) -> i32 {
     // With provided buffers (read_buffer, prog_buffer, lookahead_buffer), no free needed
     0
 }

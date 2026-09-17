@@ -1,5 +1,6 @@
 //! remove. Per lfs.c remove_.
 
+use crate::bd::Storage;
 use crate::dir::commit::{lfs_dir_commit, lfs_dir_drop};
 use crate::dir::fetch::lfs_dir_fetch;
 use crate::dir::find::lfs_dir_find;
@@ -100,8 +101,8 @@ use crate::util::lfs_pair_fromle32;
 ///
 /// #ifndef LFS_READONLY
 /// ```
-pub fn lfs_remove_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_remove_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
 ) -> i32 {

@@ -1,5 +1,6 @@
 //! Rename. Per lfs.c lfs_rename_.
 
+use crate::bd::Storage;
 use crate::dir::commit::{lfs_dir_commit, lfs_dir_drop};
 use crate::dir::fetch::lfs_dir_fetch;
 use crate::dir::find::lfs_dir_find;
@@ -235,8 +236,8 @@ fn slice_until_nul(ptr: *const u8) -> &'static [u8] {
     }
 }
 
-pub fn lfs_rename_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_rename_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     oldpath: *const u8,
     newpath: *const u8,

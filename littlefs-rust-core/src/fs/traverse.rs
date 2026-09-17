@@ -1,5 +1,7 @@
 //! FS traverse. Per lfs.c lfs_fs_traverse_.
-//
+
+use crate::bd::Storage;
+
 /// Per lfs.c lfs_fs_traverse_ (lines 4693-4794)
 ///
 /// C:
@@ -112,10 +114,10 @@
 /// includeorphans: when true, include directory struct blocks in the traversal.
 ///
 /// C: lfs.c:4693-4794
-pub fn lfs_fs_traverse_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_fs_traverse_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
-    cb: &mut dyn FnMut(&mut super::lfs::Lfs, crate::types::lfs_block_t) -> i32,
+    cb: &mut dyn FnMut(&mut super::lfs::Lfs<S>, crate::types::lfs_block_t) -> i32,
     includeorphans: bool,
 ) -> i32 {
     use crate::dir::fetch::lfs_dir_fetch;

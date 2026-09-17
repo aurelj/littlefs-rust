@@ -1,5 +1,6 @@
 //! Directory commit. Per lfs.c lfs_dir_commit, lfs_dir_commitattr, lfs_dir_alloc, etc.
 
+use crate::bd::Storage;
 use crate::dir::fetch::lfs_dir_getgstate;
 use crate::dir::LfsCommit;
 use crate::dir::LfsMdir;
@@ -26,8 +27,8 @@ use crate::types::{lfs_block_t, lfs_off_t, lfs_size_t, lfs_tag_t};
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_commitprog(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_commitprog<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     commit: *mut LfsCommit,
     buffer: *const core::ffi::c_void,
@@ -102,8 +103,8 @@ pub fn lfs_dir_commitprog(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_commitattr(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_commitattr<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     commit: *mut LfsCommit,
     tag: lfs_tag_t,
@@ -338,8 +339,8 @@ pub fn lfs_dir_commitattr(
 /// }
 /// #endif
 /// ```
-pub fn lfs_dir_commitcrc(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_commitcrc<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     commit: *mut LfsCommit,
 ) -> i32 {
@@ -522,8 +523,8 @@ pub fn lfs_dir_commitcrc(
 /// # Safety
 ///
 /// `lfs` and `dir` must be valid, properly initialized pointers.
-pub unsafe fn lfs_dir_alloc(
-    lfs: &mut crate::fs::Lfs,
+pub unsafe fn lfs_dir_alloc<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
 ) -> i32 {
@@ -600,8 +601,8 @@ pub unsafe fn lfs_dir_alloc(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_drop(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_drop<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     tail: *const LfsMdir,
@@ -670,8 +671,8 @@ pub fn lfs_dir_drop(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_split(
-    lfs: &mut Lfs,
+pub fn lfs_dir_split<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     attrs: *const core::ffi::c_void,
@@ -749,8 +750,8 @@ pub fn lfs_dir_split(
 ///     return 0;
 /// }
 /// ```
-fn lfs_dir_commit_size(
-    _lfs: &crate::fs::Lfs,
+fn lfs_dir_commit_size<S: Storage>(
+    _lfs: &Lfs<S>,
     _caches: &mut crate::fs::LfsCaches,
     size: &mut lfs_size_t,
     tag: lfs_tag_t,
@@ -770,8 +771,8 @@ fn lfs_dir_commit_size(
 ///     return lfs_dir_commitattr(commit->lfs, commit->commit, tag, buffer);
 /// }
 /// ```
-pub fn lfs_dir_commit_commit(
-    lfs: &mut Lfs,
+pub fn lfs_dir_commit_commit<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     p: *mut core::ffi::c_void,
     tag: lfs_tag_t,
@@ -801,7 +802,7 @@ pub fn lfs_dir_commit_commit(
 ///             && ((dir->rev + 1) % ((lfs->cfg->block_cycles+1)|1) == 0));
 /// }
 /// ```
-pub fn lfs_dir_needsrelocation(lfs: &Lfs, dir: *const LfsMdir) -> bool {
+pub fn lfs_dir_needsrelocation<S: Storage>(lfs: &Lfs<S>, dir: *const LfsMdir) -> bool {
     unsafe {
         let cfg = lfs.cfg.as_ref();
         match cfg {
@@ -991,8 +992,8 @@ pub fn lfs_dir_needsrelocation(lfs: &Lfs, dir: *const LfsMdir) -> bool {
 ///     return relocated ? LFS_OK_RELOCATED : 0;
 /// }
 /// ```
-pub fn lfs_dir_compact(
-    lfs: &mut Lfs,
+pub fn lfs_dir_compact<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     attrs: *const core::ffi::c_void,
@@ -1449,8 +1450,8 @@ pub fn lfs_dir_compact(
 ///     return lfs_dir_compact(lfs, dir, attrs, attrcount, source, begin, end);
 /// }
 /// ```
-pub fn lfs_dir_splittingcompact(
-    lfs: &mut Lfs,
+pub fn lfs_dir_splittingcompact<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     attrs: *const core::ffi::c_void,
@@ -1744,8 +1745,8 @@ pub fn lfs_dir_splittingcompact(
 ///     return state;
 /// }
 /// ```
-pub fn lfs_dir_relocatingcommit(
-    lfs: &mut Lfs,
+pub fn lfs_dir_relocatingcommit<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     pair: *const [lfs_block_t; 2],
@@ -1923,8 +1924,8 @@ pub fn lfs_dir_relocatingcommit(
 }
 
 #[inline(never)]
-fn relocatingcommit_fixmlist(
-    lfs: &mut Lfs,
+fn relocatingcommit_fixmlist<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     pair: *const [lfs_block_t; 2],
@@ -2016,8 +2017,8 @@ fn relocatingcommit_fixmlist(
     }
 }
 
-fn lfs_dir_commit_commit_raw(
-    lfs: &Lfs,
+fn lfs_dir_commit_commit_raw<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     commit: &mut LfsCommit,
     tag: lfs_tag_t,
@@ -2239,8 +2240,8 @@ fn lfs_dir_commit_commit_raw(
 ///     return orphans ? LFS_OK_ORPHANED : 0;
 /// }
 /// ```
-pub fn lfs_dir_orphaningcommit(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_orphaningcommit<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     attrs: *const core::ffi::c_void,
@@ -2494,8 +2495,8 @@ pub fn lfs_dir_orphaningcommit(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_commit(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_commit<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     attrs: *const core::ffi::c_void,

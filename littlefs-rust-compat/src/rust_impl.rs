@@ -2,6 +2,8 @@
 
 use std::mem::MaybeUninit;
 
+use littlefs_rust_core::Storage;
+
 use crate::storage::{check, path_cstr, prng_verify, test_prng, SharedStorage};
 
 const LFS_O_RDONLY: i32 = 1;
@@ -14,7 +16,8 @@ const LFS_ERR_EXIST: i32 = -17;
 
 pub fn format(storage: &SharedStorage) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -33,7 +36,8 @@ pub fn format(storage: &SharedStorage) -> Result<(), i32> {
 
 pub fn mount_dir_names(storage: &SharedStorage, path: &str) -> Result<Vec<String>, i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -48,7 +52,8 @@ pub fn mount_dir_names(storage: &SharedStorage, path: &str) -> Result<Vec<String
 
 pub fn mount_read_file(storage: &SharedStorage, path: &str) -> Result<Vec<u8>, i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -63,7 +68,8 @@ pub fn mount_read_file(storage: &SharedStorage, path: &str) -> Result<Vec<u8>, i
 
 pub fn format_mkdir_unmount(storage: &SharedStorage, dir_name: &str) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -87,7 +93,8 @@ pub fn format_mkdir_file_unmount(
     file_name: &str,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -112,7 +119,8 @@ pub fn format_file_mkdir_unmount(
     dir_name: &str,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -133,7 +141,8 @@ pub fn format_file_mkdir_unmount(
 
 pub fn format_create_three_unmount(storage: &SharedStorage) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -159,7 +168,8 @@ pub fn format_create_rename_unmount(
     new_name: &str,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -187,7 +197,8 @@ pub fn format_create_rename_unmount(
 
 pub fn format_create_remove_unmount(storage: &SharedStorage, path: &str) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -217,7 +228,8 @@ pub fn format_create_write_unmount(
     content: &[u8],
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -242,7 +254,8 @@ pub fn format_nested_dir_file_unmount(
     file_name: &str,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -270,7 +283,8 @@ pub fn format_mkdir_file_rmdir_unmount(
     file_name: &str,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -304,7 +318,8 @@ pub fn format_mkdir_file_rmdir_unmount(
 
 pub fn mount_mkdir_expect_exist(storage: &SharedStorage, path: &str) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -328,7 +343,8 @@ pub fn mount_mkdir_expect_exist(storage: &SharedStorage, path: &str) -> Result<(
 
 pub fn format_only(storage: &SharedStorage) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
     check(littlefs_rust_core::lfs_format(
         &mut lfs,
@@ -340,7 +356,8 @@ pub fn format_only(storage: &SharedStorage) -> Result<(), i32> {
 
 pub fn format_create_n_dirs(storage: &SharedStorage, count: usize) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -367,7 +384,8 @@ pub fn format_create_n_files_prng(
     chunk: u32,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -401,7 +419,8 @@ pub fn format_create_n_dirs_with_files_prng(
     chunk: u32,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_format(
@@ -432,7 +451,8 @@ pub fn format_create_n_dirs_with_files_prng(
 
 pub fn mount_verify_n_empty_dirs(storage: &SharedStorage, count: usize) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -467,7 +487,8 @@ pub fn mount_verify_n_files_prng(
     _chunk: u32,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -499,7 +520,8 @@ pub fn mount_verify_n_dirs_with_files_prng(
     _chunk: u32,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -533,7 +555,8 @@ pub fn mount_create_dirs_and_list(
     expected: usize,
 ) -> Result<Vec<String>, i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -564,7 +587,8 @@ pub fn mount_create_files_prng_and_verify_all(
     chunk: u32,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -607,7 +631,8 @@ pub fn mount_create_dirs_files_prng_and_verify_all(
     chunk: u32,
 ) -> Result<(), i32> {
     let env = storage.build_rust_env();
-    let mut lfs = littlefs_rust_core::Lfs::default();
+    let mut lfs =
+        littlefs_rust_core::Lfs::new(unsafe { &mut *(env.config.context as *mut SharedStorage) });
     let mut caches = littlefs_rust_core::LfsCaches::default();
 
     check(littlefs_rust_core::lfs_mount(
@@ -646,8 +671,8 @@ pub fn mount_create_dirs_files_prng_and_verify_all(
 
 // ── Internal helpers ────────────────────────────────────────────────────
 
-fn mkdir_mounted(
-    lfs: &mut littlefs_rust_core::Lfs,
+fn mkdir_mounted<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     path: &str,
 ) -> Result<(), i32> {
@@ -655,8 +680,8 @@ fn mkdir_mounted(
     check(littlefs_rust_core::lfs_mkdir(lfs, caches, p.as_ptr()))
 }
 
-fn create_empty_file_mounted(
-    lfs: &mut littlefs_rust_core::Lfs,
+fn create_empty_file_mounted<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     path: &str,
 ) -> Result<(), i32> {
@@ -677,8 +702,8 @@ fn create_empty_file_mounted(
     ))
 }
 
-fn write_file_mounted(
-    lfs: &mut littlefs_rust_core::Lfs,
+fn write_file_mounted<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     path: &str,
     content: &[u8],
@@ -712,8 +737,8 @@ fn write_file_mounted(
     Ok(())
 }
 
-fn write_prng_file_mounted(
-    lfs: &mut littlefs_rust_core::Lfs,
+fn write_prng_file_mounted<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     path: &str,
     size: u32,
@@ -756,8 +781,8 @@ fn write_prng_file_mounted(
     ))
 }
 
-fn read_file_mounted(
-    lfs: &mut littlefs_rust_core::Lfs,
+fn read_file_mounted<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     path: &str,
 ) -> Result<Vec<u8>, i32> {
@@ -798,8 +823,8 @@ fn read_file_mounted(
     Ok(buf)
 }
 
-fn dir_names_mounted(
-    lfs: &mut littlefs_rust_core::Lfs,
+fn dir_names_mounted<S: Storage>(
+    lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     path: &str,
 ) -> Result<Vec<String>, i32> {

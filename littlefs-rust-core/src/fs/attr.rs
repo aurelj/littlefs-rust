@@ -1,5 +1,6 @@
 //! attr. Per lfs.c attr_.
 
+use crate::bd::Storage;
 use crate::dir::commit::lfs_dir_commit;
 use crate::dir::fetch::lfs_dir_fetch;
 use crate::dir::find::lfs_dir_find;
@@ -51,8 +52,8 @@ use crate::util::lfs_min;
 ///     return lfs_tag_size(tag);
 /// }
 /// ```
-pub fn lfs_getattr_(
-    lfs: &mut Lfs,
+pub fn lfs_getattr_<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
@@ -136,8 +137,8 @@ pub fn lfs_getattr_(
 /// }
 /// #endif
 /// ```
-pub fn lfs_commitattr(
-    lfs: &mut Lfs,
+pub fn lfs_commitattr<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
@@ -199,8 +200,8 @@ pub fn lfs_commitattr(
 /// }
 /// #endif
 /// ```
-pub fn lfs_setattr_(
-    lfs: &mut Lfs,
+pub fn lfs_setattr_<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
@@ -226,8 +227,8 @@ pub fn lfs_setattr_(
 /// }
 /// #endif
 /// ```
-pub fn lfs_removeattr_(
-    lfs: &mut Lfs,
+pub fn lfs_removeattr_<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,

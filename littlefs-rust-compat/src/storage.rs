@@ -3,6 +3,9 @@
 use core::cell::UnsafeCell;
 use std::os::raw::c_void;
 
+use littlefs2_sys::lfs_block_t;
+use littlefs_rust_core::Storage;
+
 /// Filesystem geometry for tests.
 pub struct TestGeometry {
     pub block_size: u32,
@@ -122,41 +125,6 @@ impl SharedStorage {
         0
     }
 
-    // ── Rust (littlefs-rust-core) callbacks ────────────────────────────────────
-
-    unsafe extern "C" fn rust_read(
-        c: *const littlefs_rust_core::LfsConfig,
-        block: u32,
-        off: u32,
-        buffer: *mut u8,
-        size: u32,
-    ) -> i32 {
-        let storage = &*((*c).context as *const SharedStorage);
-        let buf = std::slice::from_raw_parts_mut(buffer, size as usize);
-        storage.read_impl(block, off, buf)
-    }
-
-    unsafe extern "C" fn rust_prog(
-        c: *const littlefs_rust_core::LfsConfig,
-        block: u32,
-        off: u32,
-        buffer: *const u8,
-        size: u32,
-    ) -> i32 {
-        let storage = &*((*c).context as *const SharedStorage);
-        let buf = std::slice::from_raw_parts(buffer, size as usize);
-        storage.prog_impl(block, off, buf)
-    }
-
-    unsafe extern "C" fn rust_erase(c: *const littlefs_rust_core::LfsConfig, block: u32) -> i32 {
-        let storage = &*((*c).context as *const SharedStorage);
-        storage.erase_impl(block)
-    }
-
-    unsafe extern "C" fn rust_sync(_c: *const littlefs_rust_core::LfsConfig) -> i32 {
-        0
-    }
-
     // ── Config builders ─────────────────────────────────────────────────
 
     /// Build a `littlefs2_sys::lfs_config` pointing at this storage.
@@ -197,10 +165,6 @@ impl SharedStorage {
 
         let config = littlefs_rust_core::LfsConfig {
             context: self as *const SharedStorage as *mut c_void,
-            read: Some(Self::rust_read),
-            prog: Some(Self::rust_prog),
-            erase: Some(Self::rust_erase),
-            sync: Some(Self::rust_sync),
             read_size: self.geo.read_size,
             prog_size: self.geo.prog_size,
             block_size: self.geo.block_size,
@@ -225,6 +189,30 @@ impl SharedStorage {
             _prog_buf: prog_buf,
             _lookahead_buf: lookahead_buf,
         }
+    }
+}
+
+impl Storage for SharedStorage {
+    fn read(
+        &mut self,
+        block: lfs_block_t,
+        offset: u32,
+        buf: &mut [u8],
+    ) -> Result<(), littlefs_rust_core::Error> {
+        littlefs_rust_core::error::from_lfs_result(self.read_impl(block, offset, buf))
+    }
+
+    fn write(
+        &mut self,
+        block: lfs_block_t,
+        offset: u32,
+        data: &[u8],
+    ) -> Result<(), littlefs_rust_core::Error> {
+        littlefs_rust_core::error::from_lfs_result(self.prog_impl(block, offset, data))
+    }
+
+    fn erase(&mut self, block: lfs_block_t) -> Result<(), littlefs_rust_core::Error> {
+        littlefs_rust_core::error::from_lfs_result(self.erase_impl(block))
     }
 }
 

@@ -1,5 +1,6 @@
 //! FS grow/shrink. Per lfs.c lfs_fs_grow_, lfs_shrink_checkblock.
 
+use crate::bd::Storage;
 use crate::dir::commit::lfs_dir_commit;
 use crate::dir::fetch::lfs_dir_fetch;
 use crate::dir::traverse::lfs_dir_get;
@@ -68,8 +69,8 @@ use crate::types::{lfs_block_t, lfs_size_t};
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_fs_grow_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_fs_grow_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     block_count: lfs_size_t,
 ) -> i32 {

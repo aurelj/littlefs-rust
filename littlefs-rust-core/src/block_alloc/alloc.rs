@@ -1,5 +1,6 @@
 //! Block allocator. Per lfs.c lfs_alloc, lfs_alloc_scan, lfs_alloc_lookahead, etc.
 
+use crate::bd::Storage;
 use crate::fs::Lfs;
 use crate::types::lfs_block_t;
 
@@ -14,7 +15,7 @@ use crate::types::lfs_block_t;
 ///
 /// # Safety
 /// `lfs` must point to a valid, initialized `Lfs` instance.
-pub unsafe fn lfs_alloc_ckpoint(lfs: &mut Lfs) {
+pub unsafe fn lfs_alloc_ckpoint<S: Storage>(lfs: &mut Lfs<S>) {
     lfs.lookahead.ckpoint = lfs.block_count;
 }
 
@@ -28,13 +29,13 @@ pub unsafe fn lfs_alloc_ckpoint(lfs: &mut Lfs) {
 ///     lfs_alloc_ckpoint(lfs);
 /// }
 /// ```
-pub fn lfs_alloc_drop(lfs: &mut Lfs) {
+pub fn lfs_alloc_drop<S: Storage>(lfs: &mut Lfs<S>) {
     lfs.lookahead.size = 0;
     lfs.lookahead.next = 0;
     unsafe { lfs_alloc_ckpoint(lfs) };
 }
 
-pub fn lfs_alloc_lookahead(lfs: &mut Lfs, block: lfs_block_t) -> i32 {
+pub fn lfs_alloc_lookahead<S: Storage>(lfs: &mut Lfs<S>, block: lfs_block_t) -> i32 {
     unsafe {
         // off = ((block - start) + block_count) % block_count
         let off = (block.wrapping_sub(lfs.lookahead.start)).wrapping_add(lfs.block_count)
@@ -82,7 +83,7 @@ pub fn lfs_alloc_lookahead(lfs: &mut Lfs, block: lfs_block_t) -> i32 {
 /// }
 /// #endif
 /// ```
-pub fn lfs_alloc_scan(lfs: &mut Lfs, caches: &mut crate::fs::LfsCaches) -> i32 {
+pub fn lfs_alloc_scan<S: Storage>(lfs: &mut Lfs<S>, caches: &mut crate::fs::LfsCaches) -> i32 {
     use crate::fs::traverse::lfs_fs_traverse_;
     use crate::util::lfs_min;
 
@@ -177,7 +178,11 @@ pub fn lfs_alloc_scan(lfs: &mut Lfs, caches: &mut crate::fs::LfsCaches) -> i32 {
 /// }
 /// #endif
 /// ```
-pub fn lfs_alloc(lfs: &mut Lfs, caches: &mut crate::fs::LfsCaches, block: *mut lfs_block_t) -> i32 {
+pub fn lfs_alloc<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut crate::fs::LfsCaches,
+    block: *mut lfs_block_t,
+) -> i32 {
     use crate::error::LFS_ERR_NOSPC;
 
     unsafe {

@@ -5,7 +5,7 @@ use core::cell::RefCell;
 use core::ffi::c_void;
 use core::mem::{ManuallyDrop, MaybeUninit};
 
-use littlefs_rust_core::{Lfs, LfsCaches, LfsConfig, LfsInfo, LFS_ERR_IO};
+use littlefs_rust_core::{Lfs, LfsCaches, LfsConfig, LfsInfo};
 
 use crate::config::Config;
 use crate::dir::{dir_entry_from_info, ReadDir};
@@ -15,10 +15,9 @@ use crate::metadata::{DirEntry, Metadata, OpenFlags};
 use crate::storage::Storage;
 
 pub(crate) struct FsInner<S: Storage> {
-    pub(crate) lfs: Lfs,
+    pub(crate) lfs: Lfs<S>,
     pub(crate) caches: LfsCaches,
     pub(crate) config: LfsConfig,
-    pub(crate) storage: S,
     _read_buf: Vec<u8>,
     _prog_buf: Vec<u8>,
     _lookahead_buf: Vec<u8>,
@@ -42,54 +41,6 @@ pub struct Filesystem<S: Storage> {
     pub(crate) inner: RefCell<Box<FsInner<S>>>,
 }
 
-// ── Trampolines ─────────────────────────────────────────────────────────────
-
-unsafe extern "C" fn trampoline_read<S: Storage>(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *mut u8,
-    size: u32,
-) -> i32 {
-    let storage = &mut *((*cfg).context as *mut S);
-    let buf = core::slice::from_raw_parts_mut(buffer, size as usize);
-    match storage.read(block, off, buf) {
-        Ok(()) => 0,
-        Err(_) => LFS_ERR_IO,
-    }
-}
-
-unsafe extern "C" fn trampoline_prog<S: Storage>(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *const u8,
-    size: u32,
-) -> i32 {
-    let storage = &mut *((*cfg).context as *mut S);
-    let buf = core::slice::from_raw_parts(buffer, size as usize);
-    match storage.write(block, off, buf) {
-        Ok(()) => 0,
-        Err(_) => LFS_ERR_IO,
-    }
-}
-
-unsafe extern "C" fn trampoline_erase<S: Storage>(cfg: *const LfsConfig, block: u32) -> i32 {
-    let storage = &mut *((*cfg).context as *mut S);
-    match storage.erase(block) {
-        Ok(()) => 0,
-        Err(_) => LFS_ERR_IO,
-    }
-}
-
-unsafe extern "C" fn trampoline_sync<S: Storage>(cfg: *const LfsConfig) -> i32 {
-    let storage = &mut *((*cfg).context as *mut S);
-    match storage.sync() {
-        Ok(()) => 0,
-        Err(_) => LFS_ERR_IO,
-    }
-}
-
 // ── FsInner construction ────────────────────────────────────────────────────
 
 fn build_inner<S: Storage>(storage: S, config: &Config) -> FsInner<S> {
@@ -102,10 +53,6 @@ fn build_inner<S: Storage>(storage: S, config: &Config) -> FsInner<S> {
 
     let lfs_config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(trampoline_read::<S>),
-        prog: Some(trampoline_prog::<S>),
-        erase: Some(trampoline_erase::<S>),
-        sync: Some(trampoline_sync::<S>),
         read_size: config.read_size,
         prog_size: config.prog_size,
         block_size: config.block_size,
@@ -125,10 +72,9 @@ fn build_inner<S: Storage>(storage: S, config: &Config) -> FsInner<S> {
     };
 
     FsInner {
-        lfs: Lfs::default(),
+        lfs: Lfs::new(storage),
         caches: LfsCaches::default(),
         config: lfs_config,
-        storage,
         _read_buf: read_buf,
         _prog_buf: prog_buf,
         _lookahead_buf: lookahead_buf,
@@ -139,7 +85,7 @@ fn build_inner<S: Storage>(storage: S, config: &Config) -> FsInner<S> {
 /// Wire `config.context` to point at `inner.storage`. Must be called after
 /// `inner` is at its final address (i.e., inside the `RefCell`).
 fn wire_context<S: Storage>(inner: &mut FsInner<S>) {
-    inner.config.context = &mut inner.storage as *mut S as *mut c_void;
+    inner.config.context = &mut inner.lfs.storage as *mut S as *mut c_void;
     inner.config.read_buffer = inner._read_buf.as_mut_ptr() as *mut c_void;
     inner.config.prog_buffer = inner._prog_buf.as_mut_ptr() as *mut c_void;
     inner.config.lookahead_buffer = inner._lookahead_buf.as_mut_ptr() as *mut c_void;
@@ -176,7 +122,7 @@ impl<S: Storage> Filesystem<S> {
             &inner.config as *const LfsConfig,
         );
         if rc != 0 {
-            return Err((Error::from(rc), inner.storage));
+            return Err((Error::from(rc), inner.lfs.storage));
         }
         inner.mounted = true;
         Ok(Filesystem {
@@ -201,7 +147,7 @@ impl<S: Storage> Filesystem<S> {
         // already unmounted. Take ownership of the RefCell's contents.
         let fs_inner = unsafe { core::ptr::read(&this.inner) }.into_inner();
         from_lfs_result(rc)?;
-        Ok(fs_inner.storage)
+        Ok(fs_inner.lfs.storage)
     }
 
     pub(crate) fn cache_size(&self) -> u32 {
@@ -352,10 +298,9 @@ impl<S: Storage> Drop for Filesystem<S> {
 // ── format helper (borrows storage instead of taking ownership) ─────────────
 
 struct BorrowedFsInner<'a, S: Storage> {
-    lfs: Lfs,
+    lfs: Lfs<&'a mut S>,
     caches: LfsCaches,
     config: LfsConfig,
-    storage: &'a mut S,
     _read_buf: Vec<u8>,
     _prog_buf: Vec<u8>,
     _lookahead_buf: Vec<u8>,
@@ -374,10 +319,6 @@ fn build_inner_borrowed<'a, S: Storage>(
 
     let lfs_config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(trampoline_read::<S>),
-        prog: Some(trampoline_prog::<S>),
-        erase: Some(trampoline_erase::<S>),
-        sync: Some(trampoline_sync::<S>),
         read_size: config.read_size,
         prog_size: config.prog_size,
         block_size: config.block_size,
@@ -397,10 +338,9 @@ fn build_inner_borrowed<'a, S: Storage>(
     };
 
     BorrowedFsInner {
-        lfs: Lfs::default(),
+        lfs: Lfs::new(storage),
         caches: LfsCaches::default(),
         config: lfs_config,
-        storage,
         _read_buf: read_buf,
         _prog_buf: prog_buf,
         _lookahead_buf: lookahead_buf,
@@ -408,7 +348,7 @@ fn build_inner_borrowed<'a, S: Storage>(
 }
 
 fn wire_context_borrowed<S: Storage>(inner: &mut BorrowedFsInner<'_, S>) {
-    inner.config.context = inner.storage as *mut S as *mut c_void;
+    inner.config.context = inner.lfs.storage as *mut S as *mut c_void;
     inner.config.read_buffer = inner._read_buf.as_mut_ptr() as *mut c_void;
     inner.config.prog_buffer = inner._prog_buf.as_mut_ptr() as *mut c_void;
     inner.config.lookahead_buffer = inner._lookahead_buf.as_mut_ptr() as *mut c_void;

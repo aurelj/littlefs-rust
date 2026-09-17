@@ -1,5 +1,6 @@
 //! Consistency. Per lfs.c lfs_fs_mkconsistent_, lfs_fs_gc_.
 
+use crate::bd::Storage;
 use crate::dir::fetch::lfs_dir_fetch;
 use crate::dir::LfsMdir;
 
@@ -39,7 +40,10 @@ use crate::dir::LfsMdir;
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_mkconsistent_(lfs: &mut super::lfs::Lfs, caches: &mut crate::fs::LfsCaches) -> i32 {
+pub fn lfs_fs_mkconsistent_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
+    caches: &mut crate::fs::LfsCaches,
+) -> i32 {
     use crate::dir::commit::lfs_dir_commit;
     use crate::lfs_gstate::{lfs_gstate_iszero, lfs_gstate_xor};
 
@@ -129,7 +133,10 @@ pub fn lfs_fs_mkconsistent_(lfs: &mut super::lfs::Lfs, caches: &mut crate::fs::L
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_gc_(lfs: &mut super::lfs::Lfs, caches: &mut crate::fs::LfsCaches) -> i32 {
+pub fn lfs_fs_gc_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
+    caches: &mut crate::fs::LfsCaches,
+) -> i32 {
     use crate::block_alloc::alloc::lfs_alloc_scan;
     use crate::dir::commit::lfs_dir_commit;
     use crate::util::{lfs_min, lfs_pair_isnull};

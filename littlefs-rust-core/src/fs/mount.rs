@@ -1,5 +1,7 @@
 //! Mount/unmount. Per lfs.c lfs_mount_, lfs_unmount_.
 
+use crate::bd::Storage;
+
 /// Per lfs.c lfs_tortoise_t and lfs_tortoise_detectcycles (lines 4464-4480)
 #[repr(C)]
 pub struct LfsTortoise {
@@ -204,8 +206,8 @@ pub fn lfs_tortoise_detectcycles(
 ///     return err;
 /// }
 /// ```
-pub fn lfs_mount_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_mount_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
 ) -> i32 {
@@ -405,6 +407,6 @@ pub fn lfs_mount_(
 ///
 ///
 /// ```
-pub fn lfs_unmount_(lfs: &mut super::lfs::Lfs) -> i32 {
+pub fn lfs_unmount_<S: Storage>(lfs: &mut super::lfs::Lfs<S>) -> i32 {
     crate::fs::init::lfs_deinit(lfs)
 }

@@ -24,7 +24,7 @@ fn test_compat_major_incompat() {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -82,7 +82,7 @@ fn test_compat_minor_incompat() {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -145,7 +145,7 @@ fn test_compat_minor_bump() {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));

@@ -1,5 +1,6 @@
 //! Stat. Per lfs.c lfs_stat_, lfs_fs_stat_, lfs_fs_size_.
 
+use crate::bd::Storage;
 use crate::fs::traverse::lfs_fs_traverse_;
 use crate::types::{lfs_block_t, lfs_size_t, lfs_ssize_t};
 
@@ -23,8 +24,8 @@ use crate::types::{lfs_block_t, lfs_size_t, lfs_ssize_t};
 ///     return lfs_dir_getinfo(lfs, &cwd, lfs_tag_id(tag), info);
 /// }
 /// ```
-pub fn lfs_stat_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_stat_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     info: *mut crate::lfs_info::LfsInfo,
@@ -120,8 +121,8 @@ pub fn lfs_stat_(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_fs_stat_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_fs_stat_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     fsinfo: *mut crate::lfs_info::LfsFsinfo,
 ) -> i32 {
@@ -197,7 +198,10 @@ pub fn lfs_fs_stat_(
 ///     return size;
 /// }
 /// ```
-pub fn lfs_fs_size_(lfs: &mut super::lfs::Lfs, caches: &mut crate::fs::LfsCaches) -> lfs_ssize_t {
+pub fn lfs_fs_size_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
+    caches: &mut crate::fs::LfsCaches,
+) -> lfs_ssize_t {
     let mut size: lfs_size_t = 0;
     let err = lfs_fs_traverse_(
         lfs,

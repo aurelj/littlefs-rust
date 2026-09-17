@@ -25,7 +25,7 @@ use rstest::rstest;
 fn test_superblocks_format() {
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     assert_ok(err);
@@ -37,7 +37,7 @@ fn test_superblocks_format() {
 fn test_superblocks_mount() {
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -59,7 +59,7 @@ fn test_superblocks_magic() {
     common::init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -67,7 +67,7 @@ fn test_superblocks_magic() {
         &env.config as *const LfsConfig,
     ));
 
-    assert_superblock_magic(&env.config);
+    assert_superblock_magic(&mut lfs);
 }
 
 // --- test_traverse_attrs_callback_order ---
@@ -76,7 +76,7 @@ fn test_superblocks_magic() {
 fn test_traverse_attrs_callback_order() {
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     let mut out = littlefs_rust_core::TraverseTestOut::default();
 
@@ -100,7 +100,7 @@ fn test_traverse_attrs_callback_order() {
 fn test_traverse_filter_gets_superblock_after_push() {
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     let mut out = littlefs_rust_core::TraverseTestOut::default();
 
@@ -134,7 +134,7 @@ fn test_traverse_filter_gets_superblock_after_push() {
 fn test_superblocks_invalid_mount() {
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     let err = lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     assert_err(littlefs_rust_core::LFS_ERR_CORRUPT, err);
@@ -146,7 +146,7 @@ fn test_superblocks_invalid_mount() {
 fn test_superblocks_stat() {
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -178,7 +178,7 @@ fn test_superblocks_stat() {
 fn test_superblocks_mount_unknown_block_count() {
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -186,7 +186,7 @@ fn test_superblocks_mount_unknown_block_count() {
         &env.config as *const LfsConfig,
     ));
 
-    let cfg0 = clone_config_with_block_count(&env, 0);
+    let cfg0 = clone_config_with_block_count(&env.config, 0);
     assert_ok(lfs_mount(
         &mut lfs,
         &mut caches,
@@ -246,7 +246,7 @@ fn test_superblocks_stat_tweaked() {
     env.config.file_max = 65535;
     env.config.attr_max = 512;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -282,7 +282,7 @@ fn test_superblocks_expand() {
             init_context(&mut env);
             env.config.block_cycles = block_cycles;
 
-            let mut lfs = Lfs::default();
+            let mut lfs = Lfs::new(&mut env.ram);
             let mut caches = LfsCaches::default();
             assert_ok(lfs_format(
                 &mut lfs,
@@ -358,7 +358,7 @@ fn test_superblocks_magic_expand() {
             init_context(&mut env);
             env.config.block_cycles = block_cycles;
 
-            let mut lfs = Lfs::default();
+            let mut lfs = Lfs::new(&mut env.ram);
             let mut caches = LfsCaches::default();
             assert_ok(lfs_format(
                 &mut lfs,
@@ -395,7 +395,7 @@ fn test_superblocks_magic_expand() {
             }
             assert_ok(lfs_unmount(&mut lfs));
 
-            assert_superblock_magic(&env.config);
+            assert_superblock_magic(&mut lfs);
         }
     }
 }
@@ -410,7 +410,7 @@ fn test_superblocks_expand_power_cycle() {
             init_context(&mut env);
             env.config.block_cycles = block_cycles;
 
-            let mut lfs = Lfs::default();
+            let mut lfs = Lfs::new(&mut env.ram);
             let mut caches = LfsCaches::default();
             assert_ok(lfs_format(
                 &mut lfs,
@@ -488,7 +488,7 @@ fn test_superblocks_reentrant_expand() {
         init_powerloss_context(&mut env);
         env.config.block_cycles = block_cycles;
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.ctx);
         let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
             &mut lfs,
@@ -581,7 +581,7 @@ fn test_superblocks_unknown_blocks() {
     const BLOCK_COUNT: u32 = 128;
     let mut env = default_config(BLOCK_COUNT);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -600,7 +600,7 @@ fn test_superblocks_unknown_blocks() {
     assert_eq!(fsinfo.block_count, BLOCK_COUNT);
     assert_ok(lfs_unmount(&mut lfs));
 
-    let cfg0 = clone_config_with_block_count(&env, 0);
+    let cfg0 = clone_config_with_block_count(&env.config, 0);
     assert_ok(lfs_mount(
         &mut lfs,
         &mut caches,
@@ -685,7 +685,7 @@ fn test_superblocks_fewer_blocks() {
         init_context(&mut env);
         env.config.block_count = block_count;
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.ram);
         let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
             &mut lfs,
@@ -693,11 +693,11 @@ fn test_superblocks_fewer_blocks() {
             &env.config as *const LfsConfig,
         ));
 
-        let cfg_full = clone_config_with_block_count(&env, ERASE_COUNT);
+        let cfg_full = clone_config_with_block_count(&env.config, ERASE_COUNT);
         let err = lfs_mount(&mut lfs, &mut caches, &cfg_full.config as *const LfsConfig);
         assert_err(LFS_ERR_INVAL, err);
 
-        let cfg0 = clone_config_with_block_count(&env, 0);
+        let cfg0 = clone_config_with_block_count(&env.config, 0);
         assert_ok(lfs_mount(
             &mut lfs,
             &mut caches,
@@ -773,7 +773,7 @@ fn test_superblocks_more_blocks() {
     const ERASE_COUNT: u32 = 128;
     let mut env = default_config(2 * ERASE_COUNT);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -781,7 +781,7 @@ fn test_superblocks_more_blocks() {
         &env.config as *const LfsConfig,
     ));
 
-    let cfg_half = clone_config_with_block_count(&env, ERASE_COUNT);
+    let cfg_half = clone_config_with_block_count(&env.config, ERASE_COUNT);
     let err = lfs_mount(&mut lfs, &mut caches, &cfg_half.config as *const LfsConfig);
     assert_err(LFS_ERR_INVAL, err);
 }
@@ -808,7 +808,7 @@ fn test_superblocks_grow(
     let large_count = ERASE_COUNT_GROW;
     env.config.block_count = small_count;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -841,7 +841,7 @@ fn test_superblocks_grow(
 
     // Mount with full block_count and verify (or block_count=0 when known_block_count is false)
     let mount_block_count = if known_block_count { large_count } else { 0 };
-    let mount_cfg = clone_config_with_block_count(&env, mount_block_count);
+    let mount_cfg = clone_config_with_block_count(&env.config, mount_block_count);
     env.config.block_count = large_count;
     assert_ok(lfs_mount(
         &mut lfs,
@@ -888,7 +888,7 @@ fn test_superblocks_shrink(
     let mut env = default_config(ERASE_COUNT_SHRINK);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
 
     assert_ok(lfs_format(
@@ -966,7 +966,7 @@ fn test_superblocks_shrink(
     assert_ok(lfs_unmount(&mut lfs));
 
     // mounting with the previous (larger) size should fail
-    let cfg_old = clone_config_with_block_count(&env, BLOCK_COUNT);
+    let cfg_old = clone_config_with_block_count(&env.config, BLOCK_COUNT);
     assert_err(
         LFS_ERR_INVAL,
         lfs_mount(&mut lfs, &mut caches, &cfg_old.config as *const LfsConfig),
@@ -1030,7 +1030,7 @@ fn test_superblocks_shrink(
         ),
         6
     );
-    assert_ok(lfs_file_close(&mut lfs, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
     assert_ok(lfs_unmount(&mut lfs));
 
     assert_ok(lfs_mount(
@@ -1063,7 +1063,7 @@ fn test_superblocks_shrink(
         6
     );
     assert_eq!(&buf[..6], b"hello!");
-    assert_ok(lfs_file_close(&mut lfs, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -1082,7 +1082,7 @@ fn test_superblocks_metadata_max(
     init_context(&mut env);
     env.config.metadata_max = metadata_max;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,

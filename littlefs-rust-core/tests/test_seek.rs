@@ -37,7 +37,7 @@ fn test_seek_read(#[case] count: u32, #[case] skip: u32) {
     let mut env = default_config(256);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -238,7 +238,7 @@ fn test_seek_write(#[case] count: u32, #[case] skip: u32) {
     let mut env = default_config(256);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -394,7 +394,7 @@ fn test_seek_boundary_read() {
     let mut env = default_config(256);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -720,7 +720,7 @@ fn test_seek_boundary_write() {
     let mut env = default_config(256);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -916,7 +916,7 @@ fn test_seek_out_of_bounds(#[case] count: u32, #[case] skip: u32) {
     let mut env = default_config(256);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1090,7 +1090,7 @@ fn test_seek_inline_write(#[case] size: u32) {
     let mut env = default_config(256);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1252,7 +1252,7 @@ fn test_seek_reentrant_write(#[case] count: u32) {
     init_powerloss_context(&mut env);
 
     let config_ptr = &env.config as *const LfsConfig;
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
 
     assert_ok(littlefs_rust_core::lfs_format(
@@ -1268,32 +1268,162 @@ fn test_seek_reentrant_write(#[case] count: u32) {
     assert_ok(littlefs_rust_core::lfs_unmount(&mut lfs));
     let snapshot = env.snapshot();
 
-    let op = |lfs: &mut Lfs, caches: &mut LfsCaches, cfg: *const LfsConfig| -> Result<(), i32> {
-        let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
-        if err != 0 {
-            let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg);
-            let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+    let result = run_powerloss_linear(
+        &mut env,
+        &snapshot,
+        3000,
+        |lfs, caches, cfg| -> Result<(), i32> {
+            let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+            if err != 0 {
+                let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg);
+                let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+                if e != 0 {
+                    return Err(e);
+                }
+            }
+
+            let path = path_bytes("kitty");
+            let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
+            let mut buf = [0u8; 32];
+
+            let open_err = littlefs_rust_core::lfs_file_open(
+                lfs,
+                caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_RDONLY,
+            );
+            if open_err == 0 {
+                let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
+                if sz != 0 {
+                    assert_eq!(sz, (count * 11) as i32);
+                    for _ in 0..count {
+                        let n = littlefs_rust_core::lfs_file_read(
+                            lfs,
+                            caches,
+                            file.as_mut_ptr(),
+                            buf.as_mut_ptr() as *mut core::ffi::c_void,
+                            11,
+                        );
+                        if n != 11 {
+                            return Err(-1);
+                        }
+                        assert!(
+                            &buf[..11] == KITTY || &buf[..11] == DOGGO,
+                            "unexpected content"
+                        );
+                    }
+                }
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                if e != 0 {
+                    return Err(e);
+                }
+            } else {
+                assert_eq!(open_err, LFS_ERR_NOENT);
+            }
+
+            let e = littlefs_rust_core::lfs_file_open(
+                lfs,
+                caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT,
+            );
             if e != 0 {
                 return Err(e);
             }
-        }
-
-        let path = path_bytes("kitty");
-        let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        let mut buf = [0u8; 32];
-
-        let open_err = littlefs_rust_core::lfs_file_open(
-            lfs,
-            caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_RDONLY,
-        );
-        if open_err == 0 {
-            let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
-            if sz != 0 {
-                assert_eq!(sz, (count * 11) as i32);
+            if littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr()) == 0 {
                 for _ in 0..count {
+                    let n = littlefs_rust_core::lfs_file_write(
+                        lfs,
+                        caches,
+                        file.as_mut_ptr(),
+                        KITTY.as_ptr() as *const core::ffi::c_void,
+                        KITTY.len() as u32,
+                    );
+                    if n < 0 {
+                        return Err(n);
+                    }
+                    assert_eq!(n, KITTY.len() as i32);
+                }
+            }
+            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+            if e != 0 {
+                return Err(e);
+            }
+
+            let e = littlefs_rust_core::lfs_file_open(
+                lfs,
+                caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_RDWR,
+            );
+            if e != 0 {
+                return Err(e);
+            }
+            assert_eq!(
+                littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr()),
+                (count * 11) as i32
+            );
+
+            let mut off: u32 = 0;
+            for _ in 0..count {
+                off = (5 * off + 1) % count;
+                let pos = (off * 11) as i32;
+                let seek_res = littlefs_rust_core::lfs_file_seek(
+                    lfs,
+                    caches,
+                    file.as_mut_ptr(),
+                    pos,
+                    LFS_SEEK_SET,
+                );
+                if seek_res != pos {
+                    return Err(-1);
+                }
+                let n = littlefs_rust_core::lfs_file_read(
+                    lfs,
+                    caches,
+                    file.as_mut_ptr(),
+                    buf.as_mut_ptr() as *mut core::ffi::c_void,
+                    11,
+                );
+                if n != 11 {
+                    return Err(-1);
+                }
+                assert!(&buf[..11] == KITTY || &buf[..11] == DOGGO);
+                if &buf[..11] != DOGGO {
+                    let seek_res = littlefs_rust_core::lfs_file_seek(
+                        lfs,
+                        caches,
+                        file.as_mut_ptr(),
+                        pos,
+                        LFS_SEEK_SET,
+                    );
+                    if seek_res != pos {
+                        return Err(-1);
+                    }
+                    let n = littlefs_rust_core::lfs_file_write(
+                        lfs,
+                        caches,
+                        file.as_mut_ptr(),
+                        DOGGO.as_ptr() as *const core::ffi::c_void,
+                        DOGGO.len() as u32,
+                    );
+                    if n < 0 {
+                        return Err(n);
+                    }
+                    assert_eq!(n, DOGGO.len() as i32);
+                    let seek_res = littlefs_rust_core::lfs_file_seek(
+                        lfs,
+                        caches,
+                        file.as_mut_ptr(),
+                        pos,
+                        LFS_SEEK_SET,
+                    );
+                    if seek_res != pos {
+                        return Err(-1);
+                    }
                     let n = littlefs_rust_core::lfs_file_read(
                         lfs,
                         caches,
@@ -1304,205 +1434,79 @@ fn test_seek_reentrant_write(#[case] count: u32) {
                     if n != 11 {
                         return Err(-1);
                     }
-                    assert!(
-                        &buf[..11] == KITTY || &buf[..11] == DOGGO,
-                        "unexpected content"
+                    assert_eq!(&buf[..11], DOGGO);
+                    let e = littlefs_rust_core::lfs_file_sync(lfs, caches, file.as_mut_ptr());
+                    if e != 0 {
+                        return Err(e);
+                    }
+                    let seek_res = littlefs_rust_core::lfs_file_seek(
+                        lfs,
+                        caches,
+                        file.as_mut_ptr(),
+                        pos,
+                        LFS_SEEK_SET,
                     );
+                    if seek_res != pos {
+                        return Err(-1);
+                    }
+                    let n = littlefs_rust_core::lfs_file_read(
+                        lfs,
+                        caches,
+                        file.as_mut_ptr(),
+                        buf.as_mut_ptr() as *mut core::ffi::c_void,
+                        11,
+                    );
+                    if n != 11 {
+                        return Err(-1);
+                    }
+                    assert_eq!(&buf[..11], DOGGO);
                 }
+            }
+
+            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+            if e != 0 {
+                return Err(e);
+            }
+
+            let e = littlefs_rust_core::lfs_file_open(
+                lfs,
+                caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_RDWR,
+            );
+            if e != 0 {
+                return Err(e);
+            }
+            assert_eq!(
+                littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr()),
+                (count * 11) as i32
+            );
+            for _ in 0..count {
+                let n = littlefs_rust_core::lfs_file_read(
+                    lfs,
+                    caches,
+                    file.as_mut_ptr(),
+                    buf.as_mut_ptr() as *mut core::ffi::c_void,
+                    11,
+                );
+                if n != 11 {
+                    return Err(-1);
+                }
+                assert_eq!(&buf[..11], DOGGO);
             }
             let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
             if e != 0 {
                 return Err(e);
             }
-        } else {
-            assert_eq!(open_err, LFS_ERR_NOENT);
-        }
-
-        let e = littlefs_rust_core::lfs_file_open(
-            lfs,
-            caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT,
-        );
-        if e != 0 {
-            return Err(e);
-        }
-        if littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr()) == 0 {
-            for _ in 0..count {
-                let n = littlefs_rust_core::lfs_file_write(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    KITTY.as_ptr() as *const core::ffi::c_void,
-                    KITTY.len() as u32,
-                );
-                if n < 0 {
-                    return Err(n);
-                }
-                assert_eq!(n, KITTY.len() as i32);
+            let e = littlefs_rust_core::lfs_unmount(lfs);
+            if e != 0 {
+                return Err(e);
             }
-        }
-        let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
-        if e != 0 {
-            return Err(e);
-        }
-
-        let e = littlefs_rust_core::lfs_file_open(
-            lfs,
-            caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_RDWR,
-        );
-        if e != 0 {
-            return Err(e);
-        }
-        assert_eq!(
-            littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr()),
-            (count * 11) as i32
-        );
-
-        let mut off: u32 = 0;
-        for _ in 0..count {
-            off = (5 * off + 1) % count;
-            let pos = (off * 11) as i32;
-            let seek_res = littlefs_rust_core::lfs_file_seek(
-                lfs,
-                caches,
-                file.as_mut_ptr(),
-                pos,
-                LFS_SEEK_SET,
-            );
-            if seek_res != pos {
-                return Err(-1);
-            }
-            let n = littlefs_rust_core::lfs_file_read(
-                lfs,
-                caches,
-                file.as_mut_ptr(),
-                buf.as_mut_ptr() as *mut core::ffi::c_void,
-                11,
-            );
-            if n != 11 {
-                return Err(-1);
-            }
-            assert!(&buf[..11] == KITTY || &buf[..11] == DOGGO);
-            if &buf[..11] != DOGGO {
-                let seek_res = littlefs_rust_core::lfs_file_seek(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    pos,
-                    LFS_SEEK_SET,
-                );
-                if seek_res != pos {
-                    return Err(-1);
-                }
-                let n = littlefs_rust_core::lfs_file_write(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    DOGGO.as_ptr() as *const core::ffi::c_void,
-                    DOGGO.len() as u32,
-                );
-                if n < 0 {
-                    return Err(n);
-                }
-                assert_eq!(n, DOGGO.len() as i32);
-                let seek_res = littlefs_rust_core::lfs_file_seek(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    pos,
-                    LFS_SEEK_SET,
-                );
-                if seek_res != pos {
-                    return Err(-1);
-                }
-                let n = littlefs_rust_core::lfs_file_read(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    11,
-                );
-                if n != 11 {
-                    return Err(-1);
-                }
-                assert_eq!(&buf[..11], DOGGO);
-                let e = littlefs_rust_core::lfs_file_sync(lfs, caches, file.as_mut_ptr());
-                if e != 0 {
-                    return Err(e);
-                }
-                let seek_res = littlefs_rust_core::lfs_file_seek(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    pos,
-                    LFS_SEEK_SET,
-                );
-                if seek_res != pos {
-                    return Err(-1);
-                }
-                let n = littlefs_rust_core::lfs_file_read(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    11,
-                );
-                if n != 11 {
-                    return Err(-1);
-                }
-                assert_eq!(&buf[..11], DOGGO);
-            }
-        }
-
-        let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
-        if e != 0 {
-            return Err(e);
-        }
-
-        let e = littlefs_rust_core::lfs_file_open(
-            lfs,
-            caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_RDWR,
-        );
-        if e != 0 {
-            return Err(e);
-        }
-        assert_eq!(
-            littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr()),
-            (count * 11) as i32
-        );
-        for _ in 0..count {
-            let n = littlefs_rust_core::lfs_file_read(
-                lfs,
-                caches,
-                file.as_mut_ptr(),
-                buf.as_mut_ptr() as *mut core::ffi::c_void,
-                11,
-            );
-            if n != 11 {
-                return Err(-1);
-            }
-            assert_eq!(&buf[..11], DOGGO);
-        }
-        let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
-        if e != 0 {
-            return Err(e);
-        }
-        let e = littlefs_rust_core::lfs_unmount(lfs);
-        if e != 0 {
-            return Err(e);
-        }
-        Ok(())
-    };
-
-    let result = run_powerloss_linear(&mut env, &snapshot, 3000, op, |_, _, _| Ok(()));
+            Ok(())
+        },
+        |_, _, _| Ok(()),
+    );
     result.expect("reentrant seek write should eventually succeed");
 }
 
@@ -1512,7 +1516,7 @@ fn test_seek_filemax() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1574,7 +1578,7 @@ fn test_seek_underflow() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1680,7 +1684,7 @@ fn test_seek_overflow() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,

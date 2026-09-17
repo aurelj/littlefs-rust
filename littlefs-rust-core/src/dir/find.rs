@@ -1,6 +1,7 @@
 //! Directory find. Per lfs.c lfs_dir_find, lfs_dir_find_match.
 
 use crate::bd::bd::lfs_bd_cmp;
+use crate::bd::Storage;
 use crate::dir::fetch::lfs_dir_fetchmatch;
 use crate::dir::traverse::lfs_dir_get;
 use crate::dir::LfsMdir;
@@ -58,8 +59,8 @@ pub(crate) struct LfsDirFindMatch {
 /// }
 ///
 /// ```
-pub(crate) fn lfs_dir_find_match(
-    lfs: &Lfs,
+pub(crate) fn lfs_dir_find_match<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     name: &LfsDirFindMatch,
     tag: lfs_tag_t,
@@ -202,8 +203,8 @@ pub(crate) fn lfs_dir_find_match(
 ///     }
 /// }
 /// ```
-pub(crate) fn lfs_dir_find(
-    lfs: &mut Lfs,
+pub(crate) fn lfs_dir_find<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     path: *mut *const u8,

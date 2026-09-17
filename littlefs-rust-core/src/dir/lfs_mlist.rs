@@ -1,6 +1,7 @@
 //! Open list node. Per lfs.h struct lfs_mlist.
 
 use super::lfs_mdir::LfsMdir;
+use crate::bd::Storage;
 
 /// Per lfs.h struct lfs_mlist
 #[repr(C)]
@@ -55,7 +56,7 @@ pub fn lfs_mlist_isopen(head: *mut LfsMlist, node: *const LfsMlist) -> bool {
 ///     }
 /// }
 /// ```
-pub fn lfs_mlist_remove(lfs: &mut crate::fs::Lfs, mlist: *mut LfsMlist) {
+pub fn lfs_mlist_remove<S: Storage>(lfs: &mut crate::fs::Lfs<S>, mlist: *mut LfsMlist) {
     if mlist.is_null() {
         return;
     }
@@ -94,7 +95,7 @@ pub fn lfs_mlist_remove(lfs: &mut crate::fs::Lfs, mlist: *mut LfsMlist) {
 ///     lfs->mlist = mlist;
 /// }
 /// ```
-pub fn lfs_mlist_append(lfs: &mut crate::fs::Lfs, mlist: *mut LfsMlist) {
+pub fn lfs_mlist_append<S: Storage>(lfs: &mut crate::fs::Lfs<S>, mlist: *mut LfsMlist) {
     if mlist.is_null() {
         return;
     }

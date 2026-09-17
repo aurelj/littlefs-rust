@@ -1,5 +1,6 @@
 //! mkdir. Per lfs.c mkdir_.
 
+use crate::bd::Storage;
 use crate::block_alloc::alloc::lfs_alloc_ckpoint;
 use crate::dir::commit::{lfs_dir_alloc, lfs_dir_commit};
 use crate::dir::fetch::lfs_dir_fetch;
@@ -113,8 +114,8 @@ use crate::util::{lfs_pair_fromle32, lfs_pair_tole32, lfs_path_islast, lfs_path_
 /// }
 /// #endif
 /// ```
-pub fn lfs_mkdir_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_mkdir_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
 ) -> i32 {

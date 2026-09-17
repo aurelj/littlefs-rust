@@ -13,7 +13,7 @@ use common::{
 };
 use littlefs_rust_core::{
     lfs_file_close, lfs_file_open, lfs_file_read, lfs_file_write, lfs_format, lfs_mkdir, lfs_mount,
-    lfs_stat, lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsFile, LfsInfo, LFS_ERR_NOSPC,
+    lfs_stat, lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsFile, LfsInfo, Storage, LFS_ERR_NOSPC,
 };
 use rstest::rstest;
 
@@ -32,8 +32,8 @@ fn init_exhaustion_env(
 /// verify after each cycle, repeat until NOSPC. Returns number of completed cycles.
 ///
 /// C: test_exhaustion.toml — shared pattern across normal/superblocks/wear_leveling
-fn run_exhaustion(
-    lfs: &mut Lfs,
+fn run_exhaustion<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
     prefix: &str,
@@ -129,8 +129,8 @@ fn run_exhaustion(
 /// After exhaustion: remount and stat all files to verify they're still readable.
 ///
 /// C: `exhausted:` label in test_exhaustion.toml
-fn verify_after_exhaustion(
-    lfs: &mut Lfs,
+fn verify_after_exhaustion<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
     prefix: &str,
@@ -165,7 +165,7 @@ fn test_exhaustion_normal(
 
     let mut env = init_exhaustion_env(erase_cycles, block_cycles, behavior);
     init_wear_leveling_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
 
     assert_ok(lfs_format(
@@ -222,7 +222,7 @@ fn test_exhaustion_superblocks(
 
     let mut env = init_exhaustion_env(erase_cycles, block_cycles, behavior);
     init_wear_leveling_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
 
     // No mkdir — files go directly in root
@@ -251,8 +251,8 @@ fn test_exhaustion_superblocks(
 }
 
 /// Run exhaustion with files in root (no subdirectory prefix).
-fn run_exhaustion_root(
-    lfs: &mut Lfs,
+fn run_exhaustion_root<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
     files: u32,
@@ -338,8 +338,8 @@ fn run_exhaustion_root(
     cycle
 }
 
-fn verify_after_exhaustion_root(
-    lfs: &mut Lfs,
+fn verify_after_exhaustion_root<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
     files: u32,
@@ -384,7 +384,7 @@ fn test_exhaustion_wear_leveling() {
             }
         }
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.bd);
         let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
             &mut lfs,
@@ -464,7 +464,7 @@ fn test_exhaustion_wear_leveling_superblocks() {
             }
         }
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.bd);
         let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
             &mut lfs,
@@ -523,7 +523,7 @@ fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: 
     env.config.block_cycles = block_cycles_val;
     init_wear_leveling_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,

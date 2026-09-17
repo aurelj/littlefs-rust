@@ -1,5 +1,6 @@
 //! Superblock and consistency. Per lfs.c lfs_fs_prepsuperblock, lfs_fs_deorphan, etc.
 
+use crate::bd::Storage;
 use crate::types::lfs_block_t;
 
 /// Per lfs.c lfs_fs_prepsuperblock (lines 4888-4892)
@@ -11,7 +12,7 @@ use crate::types::lfs_block_t;
 ///             | (uint32_t)needssuperblock << 9;
 /// }
 /// ```
-pub fn lfs_fs_prepsuperblock(lfs: &mut super::lfs::Lfs, needssuperblock: bool) {
+pub fn lfs_fs_prepsuperblock<S: Storage>(lfs: &mut super::lfs::Lfs<S>, needssuperblock: bool) {
     use crate::tag::lfs_mktag;
     unsafe {
         lfs.gstate.tag =
@@ -23,7 +24,7 @@ pub fn lfs_fs_prepsuperblock(lfs: &mut super::lfs::Lfs, needssuperblock: bool) {
 /// Assertions ensure we don't overflow the 9-bit orphan count.
 ///
 /// C: lfs.c:4894-4904
-pub fn lfs_fs_preporphans(lfs: &mut super::lfs::Lfs, orphans: i8) -> i32 {
+pub fn lfs_fs_preporphans<S: Storage>(lfs: &mut super::lfs::Lfs<S>, orphans: i8) -> i32 {
     use crate::lfs_gstate::lfs_gstate_hasorphans;
     use crate::tag::{lfs_mktag, lfs_tag_size};
 
@@ -42,7 +43,11 @@ pub fn lfs_fs_preporphans(lfs: &mut super::lfs::Lfs, orphans: i8) -> i32 {
 ///
 /// C: lfs.c:4906-4914
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn lfs_fs_prepmove(lfs: &mut super::lfs::Lfs, id: u16, pair: *const [lfs_block_t; 2]) {
+pub fn lfs_fs_prepmove<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
+    id: u16,
+    pair: *const [lfs_block_t; 2],
+) {
     use crate::lfs_type::lfs_type::LFS_TYPE_DELETE;
     use crate::tag::lfs_mktag;
 
@@ -66,7 +71,10 @@ pub fn lfs_fs_prepmove(lfs: &mut super::lfs::Lfs, id: u16, pair: *const [lfs_blo
 /// Translation docs: Rewrite superblock when needssuperblock is set (older minor version on disk).
 ///
 /// C: lfs.c:4916-4953
-pub fn lfs_fs_desuperblock(lfs: &mut super::lfs::Lfs, caches: &mut super::lfs::LfsCaches) -> i32 {
+pub fn lfs_fs_desuperblock<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
+    caches: &mut super::lfs::LfsCaches,
+) -> i32 {
     crate::lfs_trace!("desuperblock: start");
     use crate::dir::commit::lfs_dir_commit;
     use crate::dir::fetch::lfs_dir_fetch;
@@ -158,7 +166,10 @@ pub fn lfs_fs_desuperblock(lfs: &mut super::lfs::Lfs, caches: &mut super::lfs::L
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_demove(lfs: &mut super::lfs::Lfs, caches: &mut super::lfs::LfsCaches) -> i32 {
+pub fn lfs_fs_demove<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
+    caches: &mut super::lfs::LfsCaches,
+) -> i32 {
     crate::lfs_trace!("demove: start");
     use crate::dir::commit::lfs_dir_commit;
     use crate::dir::fetch::lfs_dir_fetch;
@@ -331,8 +342,8 @@ pub fn lfs_fs_demove(lfs: &mut super::lfs::Lfs, caches: &mut super::lfs::LfsCach
 /// Two passes: pass 0 for half-orphans, pass 1 for full-orphans.
 ///
 /// C: lfs.c:4991-5120
-pub fn lfs_fs_deorphan(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_fs_deorphan<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     powerloss: bool,
 ) -> i32 {
@@ -508,8 +519,8 @@ pub fn lfs_fs_deorphan(
 /// demove, and deorphan in sequence.
 ///
 /// C: lfs.c:5122-5140
-pub fn lfs_fs_forceconsistency(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_fs_forceconsistency<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
 ) -> i32 {
     crate::lfs_trace!("forceconsistency: start");

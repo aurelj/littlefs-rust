@@ -1,5 +1,6 @@
 //! Directory open/read. Per lfs.c lfs_dir_open_, lfs_dir_close_, lfs_dir_read_, etc.
 
+use crate::bd::Storage;
 use crate::dir::fetch::{lfs_dir_fetch, lfs_dir_getinfo};
 use crate::dir::find::lfs_dir_find;
 use crate::dir::lfs_mlist::lfs_mlist_append;
@@ -60,8 +61,8 @@ use crate::util::{lfs_min, lfs_pair_cmp, lfs_pair_fromle32};
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_open_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_open_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsDir,
     path: *const u8,
@@ -138,7 +139,7 @@ pub fn lfs_dir_open_(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_close_(lfs: &mut crate::fs::Lfs, dir: *mut LfsDir) -> i32 {
+pub fn lfs_dir_close_<S: Storage>(lfs: &mut crate::fs::Lfs<S>, dir: *mut LfsDir) -> i32 {
     if dir.is_null() {
         return crate::error::LFS_ERR_INVAL;
     }
@@ -197,8 +198,8 @@ pub fn lfs_dir_close_(lfs: &mut crate::fs::Lfs, dir: *mut LfsDir) -> i32 {
 ///     return true;
 /// }
 /// ```
-pub fn lfs_dir_read_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_read_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsDir,
     info: *mut LfsInfo,
@@ -312,8 +313,8 @@ pub fn lfs_dir_read_(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_seek_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_seek_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsDir,
     off: lfs_off_t,
@@ -366,7 +367,10 @@ pub fn lfs_dir_seek_(
 ///     return dir->pos;
 /// }
 /// ```
-pub fn lfs_dir_tell_(_lfs: &mut crate::fs::Lfs, dir: *const LfsDir) -> crate::types::lfs_soff_t {
+pub fn lfs_dir_tell_<S: Storage>(
+    _lfs: &mut crate::fs::Lfs<S>,
+    dir: *const LfsDir,
+) -> crate::types::lfs_soff_t {
     unsafe { (*dir).pos as crate::types::lfs_soff_t }
 }
 
@@ -386,8 +390,8 @@ pub fn lfs_dir_tell_(_lfs: &mut crate::fs::Lfs, dir: *const LfsDir) -> crate::ty
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_rewind_(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_rewind_<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsDir,
 ) -> i32 {

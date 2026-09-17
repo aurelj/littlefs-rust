@@ -10,7 +10,7 @@
 
 use core::cell::Cell;
 
-use littlefs_rust_core::{Lfs, LfsCaches, LfsConfig, LFS_ERR_IO};
+use littlefs_rust_core::{Error, Lfs, LfsCaches, LfsConfig, Storage, LFS_ERR_IO};
 
 use super::{RamStorage, BLOCK_SIZE};
 
@@ -96,70 +96,56 @@ impl PowerLossCtx {
         self.ooo_first_block = None;
         self.ooo_block_backup.clear();
     }
+
+    /// Snapshot of RAM for later restore. Copy-on-restore for runner iterations.
+    pub fn snapshot(&self) -> Vec<u8> {
+        self.ram.data.clone()
+    }
+
+    /// Restore RAM from snapshot. Call before each runner iteration.
+    pub fn restore(&mut self, snapshot: &[u8]) {
+        self.ram.data.copy_from_slice(snapshot);
+    }
 }
 
-unsafe extern "C" fn powerloss_read(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *mut u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut PowerLossCtx;
-    let ctx = &mut *ctx;
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts_mut(buffer, size);
-    ctx.ram.read(block, off, buf);
-    0
-}
+impl Storage for PowerLossCtx {
+    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+        self.ram.read(block, offset, buf)
+    }
 
-unsafe extern "C" fn powerloss_prog(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *const u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut PowerLossCtx;
-    let ctx = &mut *ctx;
-    let err = ctx.check_and_count();
-    if err != 0 {
-        if ctx.behavior == PowerLossBehavior::Ooo {
-            ctx.restore_ooo_block();
+    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+        let err = self.check_and_count();
+        if err != 0 {
+            if self.behavior == PowerLossBehavior::Ooo {
+                self.restore_ooo_block();
+            }
+            return littlefs_rust_core::error::from_lfs_result(err);
         }
-        return littlefs_rust_core::lfs_pass_err!(err);
-    }
-    if ctx.behavior == PowerLossBehavior::Ooo && ctx.ooo_first_block.is_none() {
-        ctx.save_ooo_block(block);
-    }
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts(buffer, size);
-    ctx.ram.prog(block, off, buf);
-    0
-}
-
-unsafe extern "C" fn powerloss_erase(cfg: *const LfsConfig, block: u32) -> i32 {
-    let ctx = (*cfg).context as *mut PowerLossCtx;
-    let ctx = &mut *ctx;
-    let err = ctx.check_and_count();
-    if err != 0 {
-        if ctx.behavior == PowerLossBehavior::Ooo {
-            ctx.restore_ooo_block();
+        if self.behavior == PowerLossBehavior::Ooo && self.ooo_first_block.is_none() {
+            self.save_ooo_block(block);
         }
-        return littlefs_rust_core::lfs_pass_err!(err);
+        self.ram.write(block, offset, data)
     }
-    if ctx.behavior == PowerLossBehavior::Ooo && ctx.ooo_first_block.is_none() {
-        ctx.save_ooo_block(block);
-    }
-    ctx.ram.erase(block);
-    0
-}
 
-unsafe extern "C" fn powerloss_sync(cfg: *const LfsConfig) -> i32 {
-    let ctx = (*cfg).context as *mut PowerLossCtx;
-    let ctx = &mut *ctx;
-    ctx.clear_ooo_tracking();
-    0
+    fn erase(&mut self, block: u32) -> Result<(), Error> {
+        let err = self.check_and_count();
+        if err != 0 {
+            if self.behavior == PowerLossBehavior::Ooo {
+                self.restore_ooo_block();
+            }
+            return littlefs_rust_core::error::from_lfs_result(err);
+        }
+        if self.behavior == PowerLossBehavior::Ooo && self.ooo_first_block.is_none() {
+            self.save_ooo_block(block);
+        }
+        let _ = self.ram.erase(block);
+        Ok(())
+    }
+
+    fn sync(&mut self) -> Result<(), Error> {
+        self.clear_ooo_tracking();
+        Ok(())
+    }
 }
 
 /// Test environment with power-loss simulation. Owns PowerLossCtx, config, buffers.
@@ -182,10 +168,6 @@ pub fn powerloss_config(block_count: u32) -> PowerLossEnv {
 
     let config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(powerloss_read),
-        prog: Some(powerloss_prog),
-        erase: Some(powerloss_erase),
-        sync: Some(powerloss_sync),
         read_size: 16,
         prog_size: 16,
         block_size,
@@ -230,10 +212,6 @@ pub fn powerloss_config_with_behavior(
 
     let config = LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(powerloss_read),
-        prog: Some(powerloss_prog),
-        erase: Some(powerloss_erase),
-        sync: Some(powerloss_sync),
         read_size: 16,
         prog_size: 16,
         block_size,
@@ -281,12 +259,12 @@ impl PowerLossEnv {
 
     /// Snapshot of RAM for later restore. Copy-on-restore for runner iterations.
     pub fn snapshot(&self) -> Vec<u8> {
-        self.ctx.ram.data.clone()
+        self.ctx.snapshot()
     }
 
     /// Restore RAM from snapshot. Call before each runner iteration.
     pub fn restore(&mut self, snapshot: &[u8]) {
-        self.ctx.ram.data.copy_from_slice(snapshot);
+        self.ctx.restore(snapshot);
     }
 }
 
@@ -304,8 +282,8 @@ pub fn run_powerloss_linear<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     for n in 1..=max_iter {
@@ -313,7 +291,7 @@ where
         env.set_fail_after_writes(n);
         env.reset_write_count();
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.ctx.ram);
         let mut caches = LfsCaches::default();
         match op(&mut lfs, &mut caches, config_ptr) {
             Ok(()) => return Ok(()),
@@ -338,8 +316,8 @@ pub fn run_powerloss_log<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     let mut n: u32 = 1;
@@ -348,7 +326,7 @@ where
         env.set_fail_after_writes(n);
         env.reset_write_count();
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.ctx.ram);
         let mut caches = LfsCaches::default();
         match op(&mut lfs, &mut caches, config_ptr) {
             Ok(()) => return Ok(()),
@@ -376,8 +354,8 @@ pub fn run_powerloss_exhaustive<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     run_powerloss_exhaustive_inner(env, snapshot, max_iter, max_depth, &mut op, &mut verify)
 }
@@ -391,8 +369,8 @@ fn run_powerloss_exhaustive_inner<O, V>(
     verify: &mut V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     for n in 1..=max_iter {
@@ -400,7 +378,7 @@ where
         env.set_fail_after_writes(n);
         env.reset_write_count();
 
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.ctx.ram);
         let mut caches = LfsCaches::default();
         match op(&mut lfs, &mut caches, config_ptr) {
             Ok(()) => return Ok(()),

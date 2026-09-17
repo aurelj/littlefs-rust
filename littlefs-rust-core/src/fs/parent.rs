@@ -1,5 +1,7 @@
 //! FS parent. Per lfs.c lfs_fs_pred, lfs_fs_parent.
 
+use crate::bd::Storage;
+
 /// Per lfs.c lfs_fs_pred (lines 4796-4833)
 ///
 /// C:
@@ -35,8 +37,8 @@
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_pred(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_fs_pred<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     pair: &[crate::types::lfs_block_t; 2],
     pdir: *mut crate::dir::LfsMdir,
@@ -127,8 +129,8 @@ const LFS_CMP_LT: i32 = 1;
 ///     return (lfs_pair_cmp(child, find->pair) == 0) ? LFS_CMP_EQ : LFS_CMP_LT;
 /// }
 /// ```
-fn lfs_fs_parent_match(
-    lfs: &crate::fs::Lfs,
+fn lfs_fs_parent_match<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     find: &LfsFsParentMatch,
     _tag: crate::types::lfs_tag_t,
@@ -195,8 +197,8 @@ fn lfs_fs_parent_match(
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_parent(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_fs_parent<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     pair: *const [crate::types::lfs_block_t; 2],
     parent: *mut crate::dir::LfsMdir,
@@ -247,7 +249,7 @@ pub fn lfs_fs_parent(
                 lfs_mktag(0x7ff, 0, 0x3ff),
                 lfs_mktag(LFS_TYPE_DIRSTRUCT, 0, 8),
                 core::ptr::null_mut(),
-                Some(&|lfs, caches, tag, buffer| {
+                Some(&|mut lfs, caches, tag, buffer| {
                     lfs_fs_parent_match(lfs, caches, &find_match, tag, buffer)
                 }),
             );

@@ -1,5 +1,6 @@
 //! CTZ operations. Per lfs.c lfs_ctz_index, lfs_ctz_find, lfs_ctz_extend, lfs_ctz_traverse.
 
+use crate::bd::Storage;
 use crate::error::LFS_ERR_CORRUPT;
 use crate::types::{lfs_block_t, lfs_off_t, lfs_size_t};
 
@@ -67,7 +68,7 @@ pub fn lfs_ctz_tole32(ctz: *mut LfsCtz) {
 ///     return i;
 /// }
 /// ```
-pub fn lfs_ctz_index(lfs: &crate::fs::Lfs, off: *mut lfs_off_t) -> i32 {
+pub fn lfs_ctz_index<S: Storage>(lfs: &crate::fs::Lfs<S>, off: *mut lfs_off_t) -> i32 {
     use crate::util::lfs_popc;
 
     if off.is_null() {
@@ -128,8 +129,8 @@ pub fn lfs_ctz_index(lfs: &crate::fs::Lfs, off: *mut lfs_off_t) -> i32 {
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_ctz_find(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_ctz_find<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     pcache: Option<&crate::bd::LfsCache>,
     rcache: &mut crate::bd::LfsCache,
     head: lfs_block_t,
@@ -251,13 +252,13 @@ pub fn lfs_ctz_find(
 ///     }
 /// }
 /// ```
-pub fn lfs_ctz_traverse(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_ctz_traverse<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     pcache: Option<&crate::bd::LfsCache>,
     rcache: &mut crate::bd::LfsCache,
     head: lfs_block_t,
     size: lfs_size_t,
-    cb: &mut dyn FnMut(&mut crate::fs::Lfs, crate::types::lfs_block_t) -> i32,
+    cb: &mut dyn FnMut(&mut crate::fs::Lfs<S>, crate::types::lfs_block_t) -> i32,
 ) -> i32 {
     use crate::bd::bd::lfs_bd_read;
     use crate::util::lfs_fromle32;
@@ -436,8 +437,8 @@ pub fn lfs_ctz_traverse(
 /// }
 /// #endif
 /// ```
-pub fn lfs_ctz_extend(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_ctz_extend<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     pcache: &mut crate::bd::LfsCache,
     head: lfs_block_t,

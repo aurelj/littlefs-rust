@@ -9,10 +9,7 @@ mod common;
 use common::powerloss::{init_powerloss_context, powerloss_config, run_powerloss_linear};
 #[cfg(feature = "slow_tests")]
 use common::test_prng;
-use common::{
-    assert_ok, default_config, dir_block, erase_block_raw, init_context, init_logger, path_bytes,
-    read_block_raw, write_block_raw,
-};
+use common::{assert_ok, default_config, dir_block, init_context, init_logger, path_bytes};
 #[cfg(feature = "slow_tests")]
 use littlefs_rust_core::lfs_type::lfs_type::LFS_TYPE_DIR;
 use littlefs_rust_core::lfs_type::lfs_type::LFS_TYPE_SOFTTAIL;
@@ -20,7 +17,7 @@ use littlefs_rust_core::{
     lfs_alloc_ckpoint, lfs_dir_alloc, lfs_dir_commit, lfs_dir_fetch, lfs_format,
     lfs_fs_forceconsistency, lfs_fs_hasorphans, lfs_fs_mkconsistent, lfs_fs_preporphans,
     lfs_fs_size, lfs_mattr, lfs_mkdir, lfs_mktag, lfs_mount, lfs_pair_tole32, lfs_remove, lfs_stat,
-    lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsMdir, LFS_ERR_NOENT,
+    lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsMdir, Storage, LFS_ERR_NOENT,
 };
 #[cfg(feature = "slow_tests")]
 use littlefs_rust_core::{LfsInfo, LFS_ERR_EXIST, LFS_ERR_NOTEMPTY};
@@ -33,7 +30,7 @@ fn test_orphans_mkconsistent_fresh() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -59,7 +56,7 @@ fn test_orphans_mkconsistent_no_orphans() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -120,7 +117,7 @@ fn test_orphans_no_orphans() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -152,7 +149,7 @@ fn test_orphans_nonreentrant() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -183,7 +180,7 @@ fn test_orphans_normal() {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -217,7 +214,7 @@ fn test_orphans_normal() {
 
     let block_size = env.config.block_size as usize;
     let mut buffer = vec![0u8; block_size];
-    assert_eq!(read_block_raw(cfg, block, 0, &mut buffer), 0);
+    assert!(lfs.storage.read(block, 0, &mut buffer).is_ok());
 
     let mut off = block_size as i32 - 1;
     while off >= 0 && buffer[off as usize] == 0xff {
@@ -227,8 +224,8 @@ fn test_orphans_normal() {
     let start = (off - 3) as usize;
     buffer[start..start + 3].fill(env.config.block_size as u8);
 
-    assert_eq!(erase_block_raw(cfg, block), 0);
-    assert_eq!(write_block_raw(cfg, block, 0, &buffer), 0);
+    assert!(lfs.storage.erase(block).is_ok());
+    assert!(lfs.storage.write(block, 0, &buffer).is_ok());
 
     // Mount and verify orphan is gone, child exists, size is 8
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -291,7 +288,7 @@ fn test_orphans_one_orphan() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -383,7 +380,7 @@ fn test_orphans_mkconsistent_one_orphan() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,

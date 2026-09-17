@@ -7,10 +7,9 @@
 mod common;
 
 use common::{
-    assert_err, assert_ok, default_config, erase_block_raw, init_context, path_bytes,
-    read_block_raw, write_block_raw, LFS_O_CREAT, LFS_O_RDONLY, LFS_O_WRONLY,
+    assert_err, assert_ok, default_config, init_context, path_bytes, LFS_O_CREAT, LFS_O_RDONLY,
+    LFS_O_WRONLY,
 };
-use littlefs_rust_core::lfs_mattr;
 use littlefs_rust_core::lfs_type::lfs_type::*;
 use littlefs_rust_core::{
     lfs_ctz_fromle32, lfs_deinit, lfs_dir_commit, lfs_dir_fetch, lfs_dir_get, lfs_dir_open,
@@ -19,6 +18,7 @@ use littlefs_rust_core::{
     lfs_unmount, Lfs, LfsCaches, LfsConfig, LfsCtz, LfsDir, LfsFile, LfsInfo, LfsMdir,
     LFS_ERR_CORRUPT,
 };
+use littlefs_rust_core::{lfs_mattr, Storage};
 
 const BLOCK_SIZE: u32 = 512;
 const BLOCK_COUNT: u32 = 256;
@@ -44,7 +44,7 @@ unsafe fn evil_invalid_tail_pointer(tail_type: u32, invalset: u32) {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
 
@@ -97,7 +97,7 @@ unsafe fn evil_invalid_dir_pointer(invalset: u32) {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -228,7 +228,7 @@ unsafe fn evil_invalid_file_pointer(size: u32) {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -352,7 +352,7 @@ unsafe fn evil_invalid_ctz_pointer(size: u32) {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -422,12 +422,12 @@ unsafe fn evil_invalid_ctz_pointer(size: u32) {
 
     // Rewrite ctz.head block with bad pointers at offsets 0 and 4
     let mut bbuffer = vec![0u8; BLOCK_SIZE as usize];
-    assert_ok(read_block_raw(cfg, ctz.head, 0, &mut bbuffer));
+    assert!(lfs.storage.read(ctz.head, 0, &mut bbuffer).is_ok());
     let bad: u32 = lfs_tole32(0xcccccccc);
     bbuffer[0..4].copy_from_slice(&bad.to_ne_bytes());
     bbuffer[4..8].copy_from_slice(&bad.to_ne_bytes());
-    assert_ok(erase_block_raw(cfg, ctz.head));
-    assert_ok(write_block_raw(cfg, ctz.head, 0, &bbuffer));
+    assert!(lfs.storage.erase(ctz.head).is_ok());
+    assert!(lfs.storage.write(ctz.head, 0, &bbuffer).is_ok());
     assert_ok(lfs_deinit(&mut lfs));
 
     // Verify corruption behavior
@@ -494,7 +494,7 @@ unsafe fn evil_invalid_gstate_pointer(invalset: u32) {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
 
@@ -545,7 +545,7 @@ unsafe fn evil_mdir_loop() {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
 
@@ -590,7 +590,7 @@ unsafe fn evil_mdir_loop2() {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -671,7 +671,7 @@ unsafe fn evil_mdir_loop_child() {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));

@@ -1,6 +1,6 @@
 //! RAM block device for unit tests. Erase = 0xff; prog = copy; read = copy.
 
-use crate::LfsConfig;
+use crate::{LfsConfig, Storage};
 
 /// Magic string "littlefs" in superblock blocks. Per lfs.h.
 pub const MAGIC: &[u8; 8] = b"littlefs";
@@ -31,85 +31,40 @@ impl RamStorage {
             .checked_mul(self.block_size as usize)
             .expect("block overflow")
     }
+}
 
-    pub fn read(&mut self, block: u32, off: u32, buf: &mut [u8]) {
+impl Storage for RamStorage {
+    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), crate::Error> {
         let base = self.block_offset(block);
-        let start = base + off as usize;
+        let start = base + offset as usize;
         let end = start + buf.len();
         buf.copy_from_slice(&self.data[start..end]);
+        Ok(())
     }
 
-    pub fn prog(&mut self, block: u32, off: u32, buf: &[u8]) {
+    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), crate::Error> {
         let base = self.block_offset(block);
-        let start = base + off as usize;
-        let end = start + buf.len();
-        self.data[start..end].copy_from_slice(buf);
+        let start = base + offset as usize;
+        let end = start + data.len();
+        self.data[start..end].copy_from_slice(data);
+        Ok(())
     }
 
-    pub fn erase(&mut self, block: u32) {
+    fn erase(&mut self, block: u32) -> Result<(), crate::Error> {
         let base = self.block_offset(block);
         let end = base + self.block_size as usize;
         self.data[base..end].fill(0xff);
+        Ok(())
     }
 }
 
 pub const BLOCK_SIZE: u32 = 512;
-
-unsafe extern "C" fn ram_read(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *mut u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut RamStorage;
-    assert!(!ctx.is_null(), "ram_read: config.context is null");
-    let ram = &mut *ctx;
-    assert!(
-        !ram.data.is_empty(),
-        "ram_read: RamStorage.data is empty; config.context may be invalid"
-    );
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts_mut(buffer, size);
-    ram.read(block, off, buf);
-    0
-}
-
-unsafe extern "C" fn ram_prog(
-    cfg: *const LfsConfig,
-    block: u32,
-    off: u32,
-    buffer: *const u8,
-    size: u32,
-) -> i32 {
-    let ctx = (*cfg).context as *mut RamStorage;
-    let ram = &mut *ctx;
-    let size = size as usize;
-    let buf = core::slice::from_raw_parts(buffer, size);
-    ram.prog(block, off, buf);
-    0
-}
-
-unsafe extern "C" fn ram_erase(cfg: *const LfsConfig, block: u32) -> i32 {
-    let ctx = (*cfg).context as *mut RamStorage;
-    let ram = &mut *ctx;
-    ram.erase(block);
-    0
-}
-
-unsafe extern "C" fn ram_sync(_cfg: *const LfsConfig) -> i32 {
-    0
-}
 
 /// Builds LfsConfig for the given RAM storage. Caller must set context after moving.
 pub fn make_config(block_count: u32, ram: &RamStorage) -> LfsConfig {
     let block_size = BLOCK_SIZE;
     LfsConfig {
         context: core::ptr::null_mut(),
-        read: Some(ram_read),
-        prog: Some(ram_prog),
-        erase: Some(ram_erase),
-        sync: Some(ram_sync),
         read_size: 16,
         prog_size: 16,
         block_size,

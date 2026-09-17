@@ -51,7 +51,7 @@ fn test_alloc_parallel(
 
     env.config.compact_thresh = compact_thresh_u32(compact_thresh_val);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -59,7 +59,8 @@ fn test_alloc_parallel(
         &env.config as *const LfsConfig,
     ));
 
-    let mount_cfg = clone_config_with_block_count(&env, if infer_bc { 0 } else { block_count });
+    let mount_cfg =
+        clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
     assert_ok(lfs_mount(
         &mut lfs,
         &mut caches,
@@ -178,7 +179,7 @@ fn test_alloc_serial(
 
     env.config.compact_thresh = compact_thresh_u32(compact_thresh_val);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -186,7 +187,8 @@ fn test_alloc_serial(
         &env.config as *const LfsConfig,
     ));
 
-    let mount_cfg = clone_config_with_block_count(&env, if infer_bc { 0 } else { block_count });
+    let mount_cfg =
+        clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
     assert_ok(lfs_mount(
         &mut lfs,
         &mut caches,
@@ -291,7 +293,7 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
     let block_count = env.config.block_count;
     let size: usize = ((block_size - 8) as usize * (block_count - 6) as usize) / FILES as usize;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -299,7 +301,8 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
         &env.config as *const LfsConfig,
     ));
 
-    let mount_cfg = clone_config_with_block_count(&env, if infer_bc { 0 } else { block_count });
+    let mount_cfg =
+        clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
 
     for _c in 0..cycles {
         assert_ok(lfs_mount(
@@ -430,7 +433,7 @@ fn test_alloc_serial_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] 
     let block_count = env.config.block_count;
     let size: usize = ((block_size - 8) as usize * (block_count - 6) as usize) / FILES as usize;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -438,7 +441,8 @@ fn test_alloc_serial_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] 
         &env.config as *const LfsConfig,
     ));
 
-    let mount_cfg = clone_config_with_block_count(&env, if infer_bc { 0 } else { block_count });
+    let mount_cfg =
+        clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
 
     for _c in 0..cycles {
         assert_ok(lfs_mount(
@@ -558,7 +562,7 @@ fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -566,8 +570,10 @@ fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
         &env.config as *const LfsConfig,
     ));
 
-    let mount_cfg =
-        clone_config_with_block_count(&env, if infer_bc { 0 } else { env.config.block_count });
+    let mount_cfg = clone_config_with_block_count(
+        &env.config,
+        if infer_bc { 0 } else { env.config.block_count },
+    );
     assert_ok(lfs_mount(
         &mut lfs,
         &mut caches,
@@ -652,7 +658,7 @@ fn test_alloc_split_dir() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -721,7 +727,7 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
     let block_count = env.config.block_count as u32;
     let size: usize = ((block_size - 8) as usize * (block_count - 4) as usize) / 3;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -729,7 +735,8 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
         &env.config as *const LfsConfig,
     ));
 
-    let mount_cfg = clone_config_with_block_count(&env, if infer_bc { 0 } else { block_count });
+    let mount_cfg =
+        clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
     assert_ok(lfs_mount(
         &mut lfs,
         &mut caches,
@@ -846,9 +853,10 @@ fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
     init_context(&mut env);
 
     let block_count = env.config.block_count;
-    let mount_cfg = clone_config_with_block_count(&env, if infer_bc { 0 } else { block_count });
+    let mount_cfg =
+        clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -984,7 +992,7 @@ fn test_alloc_two_files_ctz() {
     init_context(&mut env);
     let block_size = env.config.block_size as u32;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1122,7 +1130,7 @@ fn test_alloc_bad_blocks_body() {
 
     let block_size = env.config.block_size as u32;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.badblock_ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1206,7 +1214,7 @@ fn test_alloc_bad_blocks_body() {
         &mut caches,
         &env.config as *const LfsConfig,
     ));
-    env.badblock_ram.set_bad_block(fileblock);
+    lfs.storage.set_bad_block(fileblock);
 
     // Open ghost, write until CORRUPT (alloc hits bad block), close.
     assert_ok(lfs_file_open(
@@ -1239,7 +1247,7 @@ fn test_alloc_bad_blocks_body() {
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
-    env.badblock_ram.clear_bad_block(fileblock);
+    lfs.storage.clear_bad_block(fileblock);
 
     // Write ghost to NOSPC, then GC, close, unmount.
     assert_ok(lfs_file_open(
@@ -1331,7 +1339,7 @@ fn test_alloc_chained_dir_exhaustion() {
     let mut env = config_with_geometry(512, 1024);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1474,7 +1482,7 @@ fn test_alloc_outdated_lookahead() {
     let size1 = ((block_count - 2) / 2) * (block_size - 8);
     let size2 = (block_count - 2).div_ceil(2) * (block_size - 8);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1596,7 +1604,7 @@ fn test_alloc_outdated_lookahead_split_dir() {
     let size2 = (block_count - 2).div_ceil(2) * (block_size - 8);
     let size1_hole = ((block_count - 2) / 2 - 1) * (block_size - 8);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,

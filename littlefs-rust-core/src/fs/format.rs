@@ -1,6 +1,7 @@
 //! Format. Per lfs.c lfs_format_.
 
 use crate::bd::bd::lfs_bd_sync;
+use crate::bd::Storage;
 use crate::block_alloc::alloc::lfs_alloc_ckpoint;
 use crate::dir::commit::lfs_dir_alloc;
 use crate::dir::commit::lfs_dir_commit;
@@ -91,8 +92,8 @@ use crate::util::lfs_min;
 ///     lfs_size_t period;
 /// };
 /// ```
-pub fn lfs_format_(
-    lfs: &mut super::lfs::Lfs,
+pub fn lfs_format_<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
 ) -> i32 {
@@ -215,8 +216,8 @@ pub fn lfs_format_(
 /// # Safety
 /// Caller must ensure `lfs` points to valid (e.g. zeroed) `Lfs`, `cfg` to valid `LfsConfig`,
 /// and `out` to valid `TraverseTestOut` for the duration of the call.
-pub unsafe fn test_traverse_format_attrs(
-    lfs: &mut super::lfs::Lfs,
+pub unsafe fn test_traverse_format_attrs<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
     out: &mut crate::dir::traverse::TraverseTestOut,
@@ -322,8 +323,8 @@ pub unsafe fn test_traverse_format_attrs(
 ///
 /// # Safety
 /// Same as `test_traverse_format_attrs`.
-pub unsafe fn test_traverse_filter_gets_superblock_after_push(
-    lfs: &mut super::lfs::Lfs,
+pub unsafe fn test_traverse_filter_gets_superblock_after_push<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
     out: &mut crate::dir::traverse::TraverseTestOut,
@@ -431,8 +432,8 @@ pub unsafe fn test_traverse_filter_gets_superblock_after_push(
 /// # Safety
 /// Caller must ensure `lfs` points to valid (e.g. zeroed) `Lfs` and `cfg` to valid
 /// `LfsConfig` for the duration of the call.
-pub unsafe fn test_format_minimal_superblock(
-    lfs: &mut super::lfs::Lfs,
+pub unsafe fn test_format_minimal_superblock<S: Storage>(
+    lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
 ) -> i32 {

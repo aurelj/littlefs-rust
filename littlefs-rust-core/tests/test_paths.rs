@@ -47,7 +47,7 @@ fn test_paths_simple_dirs() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -88,7 +88,7 @@ fn test_paths_simple_files() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -137,7 +137,7 @@ fn test_paths_absolute_files() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -189,7 +189,7 @@ fn test_paths_absolute_dirs() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -233,7 +233,7 @@ fn test_paths_noent() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -286,7 +286,7 @@ fn test_paths_root() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -331,7 +331,7 @@ fn test_paths_redundant_slashes(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -465,7 +465,7 @@ fn test_paths_trailing_slashes(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -594,7 +594,7 @@ fn test_paths_dots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -717,7 +717,7 @@ fn test_paths_trailing_dots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -855,7 +855,7 @@ fn test_paths_dotdots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -989,7 +989,7 @@ fn test_paths_trailing_dotdots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1205,7 +1205,7 @@ fn test_paths_dot_dotdots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1424,7 +1424,7 @@ fn test_paths_dotdotdots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1493,7 +1493,7 @@ fn test_paths_noent_trailing_slashes(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1880,7 +1880,7 @@ fn test_paths_noent_trailing_dots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2047,7 +2047,7 @@ fn test_paths_noent_trailing_dotdots(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2206,7 +2206,7 @@ fn test_paths_utf8_ipa(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2344,7 +2344,7 @@ fn test_paths_oopsallspaces(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2483,7 +2483,7 @@ fn test_paths_oopsalldels(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2614,7 +2614,7 @@ fn test_paths_oopsallffs(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2743,7 +2743,7 @@ fn test_paths_leading_dots(#[case] _dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2775,7 +2775,7 @@ fn test_paths_root_dotdots(#[case] _dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2805,7 +2805,7 @@ fn test_paths_noent_parent() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2835,7 +2835,7 @@ fn test_paths_notdir_parent() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2876,7 +2876,7 @@ fn test_paths_empty(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2949,7 +2949,7 @@ fn test_paths_root_aliases(#[case] _dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -2983,7 +2983,7 @@ fn test_paths_magic_noent() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -3016,7 +3016,7 @@ fn test_paths_magic_conflict(#[case] dir_mode: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -3102,7 +3102,7 @@ fn test_paths_nametoolong() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -3127,7 +3127,7 @@ fn test_paths_namejustlongenough() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -3161,7 +3161,7 @@ fn test_paths_utf8() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -3191,7 +3191,7 @@ fn test_paths_spaces() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -3221,7 +3221,7 @@ fn test_paths_nonprintable() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -3252,7 +3252,7 @@ fn test_paths_nonutf8() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,

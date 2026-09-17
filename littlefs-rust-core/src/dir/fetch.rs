@@ -1,6 +1,7 @@
 //! Directory fetch. Per lfs.c lfs_dir_fetch, lfs_dir_getgstate, lfs_dir_getinfo.
 
 use crate::bd::bd::{lfs_bd_crc, lfs_bd_read};
+use crate::bd::Storage;
 use crate::crc::lfs_crc;
 use crate::dir::lfs_fcrc::lfs_fcrc_fromle32;
 use crate::dir::traverse::lfs_dir_get;
@@ -308,8 +309,8 @@ use core::mem;
 /// }
 ///
 /// ```
-pub fn lfs_dir_fetchmatch(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_fetchmatch<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     _dir: *mut LfsMdir,
     _pair: *const [lfs_block_t; 2],
@@ -318,7 +319,7 @@ pub fn lfs_dir_fetchmatch(
     _id: *mut u16,
     _cb: Option<
         &dyn Fn(
-            &crate::fs::Lfs,
+            &mut crate::fs::Lfs<S>,
             &mut crate::fs::LfsCaches,
             lfs_tag_t,
             &crate::tag::lfs_diskoff,
@@ -701,8 +702,8 @@ pub fn lfs_dir_fetchmatch(
 ///             (lfs_tag_t)-1, (lfs_tag_t)-1, NULL, NULL, NULL);
 /// }
 /// ```
-pub fn lfs_dir_fetch(
-    lfs: &mut crate::fs::Lfs,
+pub fn lfs_dir_fetch<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
     pair: &[lfs_block_t; 2],
@@ -746,8 +747,8 @@ pub fn lfs_dir_fetch(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_getgstate(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_getgstate<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     gstate: *mut LfsGstate,
@@ -818,8 +819,8 @@ pub fn lfs_dir_getgstate(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_getinfo(
-    lfs: &crate::fs::Lfs,
+pub fn lfs_dir_getinfo<S: Storage>(
+    lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
     id: u16,

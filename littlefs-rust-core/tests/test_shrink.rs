@@ -40,7 +40,7 @@ unsafe fn shrink_simple(block_count: u32, after_block_count: u32) {
     init_context(&mut env);
     let cfg = &env.config as *const LfsConfig;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -52,8 +52,8 @@ unsafe fn shrink_simple(block_count: u32, after_block_count: u32) {
     }
 
     // Mount with reduced config
-    let cfg2 = clone_config_with_block_count(&env, after_block_count);
-    let mut lfs2 = Lfs::default();
+    let cfg2 = clone_config_with_block_count(&env.config, after_block_count);
+    let mut lfs2 = Lfs::new(&mut env.ram);
     let mut caches2 = LfsCaches::default();
     assert_ok(lfs_mount(
         &mut lfs2,
@@ -93,7 +93,7 @@ unsafe fn shrink_full(block_count: u32, after_block_count: u32, files_count: u32
     let cfg = &env.config as *const LfsConfig;
     let size = BLOCK_SIZE - 0x40;
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(&mut lfs, &mut caches, cfg));
     assert_ok(lfs_mount(&mut lfs, &mut caches, cfg));
@@ -168,8 +168,8 @@ unsafe fn shrink_full(block_count: u32, after_block_count: u32, files_count: u32
         }
 
         // Remount with reduced config and verify files again
-        let cfg2 = clone_config_with_block_count(&env, after_block_count);
-        let mut lfs2 = Lfs::default();
+        let cfg2 = clone_config_with_block_count(&env.config, after_block_count);
+        let mut lfs2 = Lfs::new(&mut env.ram);
         let mut caches2 = LfsCaches::default();
         assert_ok(lfs_mount(
             &mut lfs2,

@@ -17,7 +17,7 @@ mod dir;
 #[cfg(feature = "alloc")]
 mod lfs_alloc_module;
 
-mod error;
+pub mod error;
 mod file;
 mod fs;
 mod lfs_config;
@@ -35,10 +35,12 @@ mod util;
 
 use core::ffi::c_void;
 
+pub use crate::bd::Storage;
 pub use crate::dir::LfsDir;
 pub use crate::error::{
-    LFS_ERR_CORRUPT, LFS_ERR_EXIST, LFS_ERR_INVAL, LFS_ERR_IO, LFS_ERR_ISDIR, LFS_ERR_NAMETOOLONG,
-    LFS_ERR_NOATTR, LFS_ERR_NOENT, LFS_ERR_NOMEM, LFS_ERR_NOSPC, LFS_ERR_NOTDIR, LFS_ERR_NOTEMPTY,
+    Error, LFS_ERR_CORRUPT, LFS_ERR_EXIST, LFS_ERR_INVAL, LFS_ERR_IO, LFS_ERR_ISDIR,
+    LFS_ERR_NAMETOOLONG, LFS_ERR_NOATTR, LFS_ERR_NOENT, LFS_ERR_NOMEM, LFS_ERR_NOSPC,
+    LFS_ERR_NOTDIR, LFS_ERR_NOTEMPTY,
 };
 pub use crate::file::LfsFile;
 pub use crate::fs::Lfs;
@@ -89,7 +91,11 @@ pub use crate::util::{lfs_pair_fromle32, lfs_pair_tole32, lfs_tole32};
 /// Format a block device with littlefs.
 /// Per lfs.h lfs_format. Calls lfs_format_ (lfs.c:4391).
 #[inline(never)]
-pub fn lfs_format(lfs: &mut Lfs, caches: &mut LfsCaches, config: *const LfsConfig) -> i32 {
+pub fn lfs_format<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    config: *const LfsConfig,
+) -> i32 {
     crate::lfs_trace!("lfs_format({:p}, {:p})", lfs, config);
     let err = crate::fs::lfs_format_(lfs, caches, config);
     crate::lfs_trace!("lfs_format -> {}", err);
@@ -99,7 +105,11 @@ pub fn lfs_format(lfs: &mut Lfs, caches: &mut LfsCaches, config: *const LfsConfi
 /// Mount a littlefs.
 /// Per lfs.h lfs_mount. Calls lfs_mount_ (lfs.c:4482).
 #[inline(never)]
-pub fn lfs_mount(lfs: &mut Lfs, caches: &mut LfsCaches, config: *const LfsConfig) -> i32 {
+pub fn lfs_mount<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    config: *const LfsConfig,
+) -> i32 {
     crate::lfs_trace!("lfs_mount({:p}, {:p})", lfs, config);
     crate::fs::lfs_mount_(lfs, caches, config)
 }
@@ -107,20 +117,20 @@ pub fn lfs_mount(lfs: &mut Lfs, caches: &mut LfsCaches, config: *const LfsConfig
 /// Unmount a littlefs.
 /// Per lfs.h lfs_unmount. Calls lfs_unmount_ (lfs.c:4647).
 #[inline(never)]
-pub fn lfs_unmount(lfs: &mut Lfs) -> i32 {
+pub fn lfs_unmount<S: Storage>(lfs: &mut Lfs<S>) -> i32 {
     crate::fs::lfs_unmount_(lfs)
 }
 
 /// Remove a file or directory. Per lfs.h lfs_remove (lfs.c:6193-6195).
 #[inline(never)]
-pub fn lfs_remove(lfs: &mut Lfs, caches: &mut LfsCaches, path: *const u8) -> i32 {
+pub fn lfs_remove<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches, path: *const u8) -> i32 {
     crate::fs::remove::lfs_remove_(lfs, caches, path)
 }
 
 /// Rename or move a file or directory. Per lfs.h lfs_rename (lfs.c:6227-6231).
 #[inline(never)]
-pub fn lfs_rename(
-    lfs: &mut Lfs,
+pub fn lfs_rename<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     oldpath: *const u8,
     newpath: *const u8,
@@ -130,14 +140,19 @@ pub fn lfs_rename(
 
 /// Find info about a file or directory. Per lfs.h lfs_stat (lfs.c:6263-6267).
 #[inline(never)]
-pub fn lfs_stat(lfs: &mut Lfs, caches: &mut LfsCaches, path: *const u8, info: *mut LfsInfo) -> i32 {
+pub fn lfs_stat<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    path: *const u8,
+    info: *mut LfsInfo,
+) -> i32 {
     crate::fs::stat::lfs_stat_(lfs, caches, path, info)
 }
 
 /// Get a custom attribute. Per lfs.h lfs_getattr (lfs.c:6090-6105).
 #[inline(never)]
-pub fn lfs_getattr(
-    lfs: &mut Lfs,
+pub fn lfs_getattr<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     path: *const u8,
     r#type: u8,
@@ -149,8 +164,8 @@ pub fn lfs_getattr(
 
 /// Set custom attributes. Per lfs.h lfs_setattr (lfs.c:6471-6475).
 #[inline(never)]
-pub fn lfs_setattr(
-    lfs: &mut Lfs,
+pub fn lfs_setattr<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     path: *const u8,
     r#type: u8,
@@ -162,14 +177,19 @@ pub fn lfs_setattr(
 
 /// Remove a custom attribute. Per lfs.h lfs_removeattr (lfs.c:6487-6491).
 #[inline(never)]
-pub fn lfs_removeattr(lfs: &mut Lfs, caches: &mut LfsCaches, path: *const u8, r#type: u8) -> i32 {
+pub fn lfs_removeattr<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    path: *const u8,
+    r#type: u8,
+) -> i32 {
     crate::fs::attr::lfs_removeattr_(lfs, caches, path, r#type)
 }
 
 /// Open a file. Per lfs.h lfs_file_open (lfs.c:6140-6146).
 #[inline(never)]
-pub fn lfs_file_open(
-    lfs: &mut Lfs,
+pub fn lfs_file_open<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
     path: *const u8,
@@ -180,8 +200,8 @@ pub fn lfs_file_open(
 
 /// Open a file with extra configuration. Per lfs.h lfs_file_opencfg (lfs.c:6193-6197).
 #[inline(never)]
-pub fn lfs_file_opencfg(
-    lfs: &mut Lfs,
+pub fn lfs_file_opencfg<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
     path: *const u8,
@@ -193,20 +213,28 @@ pub fn lfs_file_opencfg(
 
 /// Close a file. Per lfs.h lfs_file_close (lfs.c:6227-6231).
 #[inline(never)]
-pub fn lfs_file_close(lfs: &mut Lfs, caches: &mut LfsCaches, file: *mut LfsFile) -> i32 {
+pub fn lfs_file_close<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    file: *mut LfsFile,
+) -> i32 {
     crate::file::ops::lfs_file_close_(lfs, caches, file)
 }
 
 /// Synchronize a file on storage. Per lfs.h lfs_file_sync (lfs.c:6263-6267).
 #[inline(never)]
-pub fn lfs_file_sync(lfs: &mut Lfs, caches: &mut LfsCaches, file: *mut LfsFile) -> i32 {
+pub fn lfs_file_sync<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    file: *mut LfsFile,
+) -> i32 {
     crate::file::ops::lfs_file_sync_(lfs, caches, file)
 }
 
 /// Read data from file. Per lfs.h lfs_file_read (lfs.c:6210-6224).
 #[inline(never)]
-pub fn lfs_file_read(
-    lfs: &mut Lfs,
+pub fn lfs_file_read<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
     buffer: *mut c_void,
@@ -217,8 +245,8 @@ pub fn lfs_file_read(
 
 /// Write data to file. Per lfs.h lfs_file_write (lfs.c:6228-6242).
 #[inline(never)]
-pub fn lfs_file_write(
-    lfs: &mut Lfs,
+pub fn lfs_file_write<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
     buffer: *const c_void,
@@ -229,8 +257,8 @@ pub fn lfs_file_write(
 
 /// Change the position of the file. Per lfs.h lfs_file_seek (lfs.c:6246-6260).
 #[inline(never)]
-pub fn lfs_file_seek(
-    lfs: &mut Lfs,
+pub fn lfs_file_seek<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
     off: lfs_soff_t,
@@ -241,8 +269,8 @@ pub fn lfs_file_seek(
 
 /// Truncate the size of the file. Per lfs.h lfs_file_truncate (lfs.c:6471-6475).
 #[inline(never)]
-pub fn lfs_file_truncate(
-    lfs: &mut Lfs,
+pub fn lfs_file_truncate<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
     size: lfs_off_t,
@@ -252,32 +280,36 @@ pub fn lfs_file_truncate(
 
 /// Return the position of the file. Per lfs.h lfs_file_tell.
 #[inline(never)]
-pub fn lfs_file_tell(lfs: &mut Lfs, file: *mut LfsFile) -> lfs_soff_t {
+pub fn lfs_file_tell<S: Storage>(lfs: &mut Lfs<S>, file: *mut LfsFile) -> lfs_soff_t {
     crate::file::ops::lfs_file_tell_(lfs, file)
 }
 
 /// Change the position to the beginning of the file. Per lfs.h lfs_file_rewind (lfs.c:6487-6491).
 #[inline(never)]
-pub fn lfs_file_rewind(lfs: &mut Lfs, caches: &mut LfsCaches, file: *mut LfsFile) -> i32 {
+pub fn lfs_file_rewind<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    file: *mut LfsFile,
+) -> i32 {
     crate::file::ops::lfs_file_rewind_(lfs, caches, file)
 }
 
 /// Return the size of the file. Per lfs.h lfs_file_size (lfs.c:6495-6499).
 #[inline(never)]
-pub fn lfs_file_size(lfs: &mut Lfs, file: *mut LfsFile) -> lfs_soff_t {
+pub fn lfs_file_size<S: Storage>(lfs: &mut Lfs<S>, file: *mut LfsFile) -> lfs_soff_t {
     crate::file::ops::lfs_file_size_(lfs, file)
 }
 
 /// Create a directory. Per lfs.h lfs_mkdir (lfs.c:6503-6507).
 #[inline(never)]
-pub fn lfs_mkdir(lfs: &mut Lfs, caches: &mut LfsCaches, path: *const u8) -> i32 {
+pub fn lfs_mkdir<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches, path: *const u8) -> i32 {
     crate::fs::mkdir::lfs_mkdir_(lfs, caches, path)
 }
 
 /// Open a directory. Per lfs.h lfs_dir_open (lfs.c:6511-6515).
 #[inline(never)]
-pub fn lfs_dir_open(
-    lfs: &mut Lfs,
+pub fn lfs_dir_open<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     dir: *mut LfsDir,
     path: *const u8,
@@ -287,14 +319,14 @@ pub fn lfs_dir_open(
 
 /// Close a directory. Per lfs.h lfs_dir_close.
 #[inline(never)]
-pub fn lfs_dir_close(lfs: &mut Lfs, dir: *mut LfsDir) -> i32 {
+pub fn lfs_dir_close<S: Storage>(lfs: &mut Lfs<S>, dir: *mut LfsDir) -> i32 {
     crate::dir::open::lfs_dir_close_(lfs, dir)
 }
 
 /// Read an entry in the directory. Per lfs.h lfs_dir_read.
 #[inline(never)]
-pub fn lfs_dir_read(
-    lfs: &mut Lfs,
+pub fn lfs_dir_read<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     dir: *mut LfsDir,
     info: *mut LfsInfo,
@@ -304,8 +336,8 @@ pub fn lfs_dir_read(
 
 /// Change the position of the directory. Per lfs.h lfs_dir_seek.
 #[inline(never)]
-pub fn lfs_dir_seek(
-    lfs: &mut Lfs,
+pub fn lfs_dir_seek<S: Storage>(
+    lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     dir: *mut LfsDir,
     off: lfs_off_t,
@@ -315,69 +347,85 @@ pub fn lfs_dir_seek(
 
 /// Return the position of the directory. Per lfs.h lfs_dir_tell (lfs.c:6400-6412).
 #[inline(never)]
-pub fn lfs_dir_tell(lfs: &mut Lfs, dir: *mut LfsDir) -> lfs_soff_t {
+pub fn lfs_dir_tell<S: Storage>(lfs: &mut Lfs<S>, dir: *mut LfsDir) -> lfs_soff_t {
     crate::dir::open::lfs_dir_tell_(lfs, dir)
 }
 
 /// Change the position to the beginning of the directory. Per lfs.h lfs_dir_rewind.
 #[inline(never)]
-pub fn lfs_dir_rewind(lfs: &mut Lfs, caches: &mut LfsCaches, dir: *mut LfsDir) -> i32 {
+pub fn lfs_dir_rewind<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    dir: *mut LfsDir,
+) -> i32 {
     crate::dir::open::lfs_dir_rewind_(lfs, caches, dir)
 }
 
 /// Find on-disk info about the filesystem. Per lfs.h lfs_fs_stat (lfs.c:6449-6453).
 #[inline(never)]
-pub fn lfs_fs_stat(lfs: &mut Lfs, caches: &mut LfsCaches, fsinfo: *mut LfsFsinfo) -> i32 {
+pub fn lfs_fs_stat<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    fsinfo: *mut LfsFsinfo,
+) -> i32 {
     crate::fs::lfs_fs_stat_(lfs, caches, fsinfo)
 }
 
 /// Find the current size of the filesystem. Per lfs.h lfs_fs_size (lfs.c:6449-6453).
 #[inline(never)]
-pub fn lfs_fs_size(lfs: &mut Lfs, caches: &mut LfsCaches) -> lfs_ssize_t {
+pub fn lfs_fs_size<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches) -> lfs_ssize_t {
     crate::fs::stat::lfs_fs_size_(lfs, caches)
 }
 
 /// Closure type for lfs_fs_traverse.
-pub type LfsTraverseCb = dyn FnMut(&mut Lfs, lfs_block_t) -> i32;
+pub type LfsTraverseCb<S> = dyn FnMut(&mut Lfs<S>, lfs_block_t) -> i32;
 
 /// Traverse through all blocks in use by the filesystem. Per lfs.h lfs_fs_traverse.
 #[inline(never)]
-pub fn lfs_fs_traverse(lfs: &mut Lfs, caches: &mut LfsCaches, cb: &mut LfsTraverseCb) -> i32 {
+pub fn lfs_fs_traverse<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    cb: &mut LfsTraverseCb<S>,
+) -> i32 {
     crate::fs::traverse::lfs_fs_traverse_(lfs, caches, cb, false)
 }
 
 /// Attempt to make the filesystem consistent. Per lfs.h lfs_fs_mkconsistent (lfs.c:6479-6483).
 #[inline(never)]
-pub fn lfs_fs_mkconsistent(lfs: &mut Lfs, caches: &mut LfsCaches) -> i32 {
+pub fn lfs_fs_mkconsistent<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches) -> i32 {
     crate::fs::consistent::lfs_fs_mkconsistent_(lfs, caches)
 }
 
 /// Attempt any janitorial work. Per lfs.h lfs_fs_gc (lfs.c:6495-6499).
 #[inline(never)]
-pub fn lfs_fs_gc(lfs: &mut Lfs, caches: &mut LfsCaches) -> i32 {
+pub fn lfs_fs_gc<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches) -> i32 {
     crate::fs::consistent::lfs_fs_gc_(lfs, caches)
 }
 
 /// Force consistency (deorphan, demove, desuperblock). For testing.
 #[doc(hidden)]
-pub fn lfs_fs_forceconsistency(lfs: &mut Lfs, caches: &mut LfsCaches) -> i32 {
+pub fn lfs_fs_forceconsistency<S: Storage>(lfs: &mut Lfs<S>, caches: &mut LfsCaches) -> i32 {
     crate::fs::superblock::lfs_fs_forceconsistency(lfs, caches)
 }
 
 /// Prepend orphan count delta to gstate. For testing power-loss paths.
 #[doc(hidden)]
-pub fn lfs_fs_preporphans(lfs: &mut Lfs, orphans: i8) -> i32 {
+pub fn lfs_fs_preporphans<S: Storage>(lfs: &mut Lfs<S>, orphans: i8) -> i32 {
     crate::fs::superblock::lfs_fs_preporphans(lfs, orphans)
 }
 
 /// True if gstate has pending orphans. For testing.
 #[doc(hidden)]
-pub unsafe fn lfs_fs_hasorphans(lfs: &Lfs) -> bool {
+pub unsafe fn lfs_fs_hasorphans<S: Storage>(lfs: &Lfs<S>) -> bool {
     crate::lfs_gstate::lfs_gstate_hasorphans(&lfs.gstate)
 }
 
 /// Grow (or shrink) the filesystem to a new size. Per lfs.h lfs_fs_grow (lfs.c:6511-6515).
 #[inline(never)]
-pub fn lfs_fs_grow(lfs: &mut Lfs, caches: &mut LfsCaches, block_count: lfs_size_t) -> i32 {
+pub fn lfs_fs_grow<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut LfsCaches,
+    block_count: lfs_size_t,
+) -> i32 {
     crate::fs::grow::lfs_fs_grow_(lfs, caches, block_count)
 }

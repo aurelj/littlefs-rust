@@ -1,7 +1,8 @@
 //! Block device operations. Per lfs.c lfs_bd_read, lfs_bd_prog, lfs_bd_crc, etc.
 
 use crate::bd::LfsCache;
-use crate::error::LFS_ERR_CORRUPT;
+use crate::bd::Storage;
+use crate::error::{from_empty_result, Error, LFS_ERR_CORRUPT};
 use crate::fs::{Lfs, LfsCaches};
 use crate::types::{lfs_block_t, lfs_off_t, lfs_size_t};
 use crate::util::{lfs_aligndown, lfs_alignup, lfs_min};
@@ -33,7 +34,7 @@ pub fn lfs_cache_drop(cache: &mut LfsCache) {
 /// }
 /// ```
 #[inline(always)]
-pub fn lfs_cache_zero(lfs: &Lfs, cache: &mut LfsCache) {
+pub fn lfs_cache_zero<S: Storage>(lfs: &Lfs<S>, cache: &mut LfsCache) {
     unsafe {
         let cfg = lfs.cfg;
         let cache_size = (*cfg).cache_size as usize;
@@ -133,8 +134,8 @@ pub fn lfs_cache_zero(lfs: &Lfs, cache: &mut LfsCache) {
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_bd_read(
-    lfs: &Lfs,
+pub fn lfs_bd_read<S: Storage>(
+    lfs: &mut Lfs<S>,
     pcache: Option<&LfsCache>,
     rcache: &mut LfsCache,
     hint: lfs_size_t,
@@ -145,10 +146,6 @@ pub fn lfs_bd_read(
 ) -> i32 {
     unsafe {
         let cfg = &*lfs.cfg;
-        let read = match cfg.read {
-            Some(f) => f,
-            None => return LFS_ERR_CORRUPT,
-        };
 
         if off + size > cfg.block_size || (lfs.block_count != 0 && block >= lfs.block_count) {
             return crate::lfs_err!(LFS_ERR_CORRUPT);
@@ -202,7 +199,9 @@ pub fn lfs_bd_read(
             if size >= hint && off.is_multiple_of(cfg.read_size) && size >= cfg.read_size {
                 diff = lfs_aligndown(diff, cfg.read_size);
                 crate::lfs_trace!("bd_read block={} off={} size={}", block, off, diff);
-                let err = read(cfg as *const _, block, off, data, diff);
+                let buf = core::slice::from_raw_parts_mut(data, diff as usize);
+                let res = lfs.storage.read(block, off, buf);
+                let err = from_empty_result(res);
                 crate::lfs_assert!(err <= 0);
                 if err != 0 {
                     crate::lfs_trace!("bd_read block={} -> CORRUPT", block);
@@ -228,13 +227,9 @@ pub fn lfs_bd_read(
                 rcache.off,
                 rcache.size
             );
-            let err = read(
-                cfg as *const _,
-                rcache.block,
-                rcache.off,
-                rcache.buffer,
-                rcache.size,
-            );
+            let buf = core::slice::from_raw_parts_mut(rcache.buffer, rcache.size as usize);
+            let res = lfs.storage.read(rcache.block, rcache.off, buf);
+            let err = from_empty_result(res);
             crate::lfs_assert!(err <= 0);
             if err != 0 {
                 crate::lfs_trace!("bd_read block={} -> CORRUPT", rcache.block);
@@ -280,8 +275,8 @@ pub fn lfs_bd_read(
 ///     return LFS_CMP_EQ;
 /// }
 /// ```
-pub fn lfs_bd_cmp(
-    lfs: &Lfs,
+pub fn lfs_bd_cmp<S: Storage>(
+    lfs: &mut Lfs<S>,
     pcache: Option<&LfsCache>,
     rcache: &mut LfsCache,
     hint: lfs_size_t,
@@ -352,8 +347,8 @@ pub fn lfs_bd_cmp(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_bd_crc(
-    lfs: &Lfs,
+pub fn lfs_bd_crc<S: Storage>(
+    lfs: &mut Lfs<S>,
     pcache: Option<&LfsCache>,
     rcache: &mut LfsCache,
     hint: lfs_size_t,
@@ -429,8 +424,8 @@ pub fn lfs_bd_crc(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_flush(
-    lfs: &Lfs,
+pub fn lfs_bd_flush<S: Storage>(
+    lfs: &mut Lfs<S>,
     pcache: &mut LfsCache,
     rcache: &mut LfsCache,
     validate: bool,
@@ -450,17 +445,9 @@ pub fn lfs_bd_flush(
                 pcache.off,
                 diff
             );
-            let prog = match cfg.prog {
-                Some(f) => f,
-                None => return LFS_ERR_CORRUPT,
-            };
-            let err = prog(
-                cfg as *const _,
-                pcache.block,
-                pcache.off,
-                pcache.buffer,
-                diff,
-            );
+            let buf = core::slice::from_raw_parts(pcache.buffer, diff as usize);
+            let res = lfs.storage.write(pcache.block, pcache.off, buf);
+            let err = from_empty_result(res);
             crate::lfs_assert!(err <= 0);
             if err != 0 {
                 crate::lfs_trace!("bd_prog block={} -> CORRUPT", pcache.block);
@@ -514,7 +501,12 @@ pub fn lfs_bd_flush(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_sync(lfs: &Lfs, pcache: &mut LfsCache, rcache: &mut LfsCache, validate: bool) -> i32 {
+pub fn lfs_bd_sync<S: Storage>(
+    lfs: &mut Lfs<S>,
+    pcache: &mut LfsCache,
+    rcache: &mut LfsCache,
+    validate: bool,
+) -> i32 {
     unsafe {
         lfs_cache_drop(rcache);
 
@@ -523,12 +515,8 @@ pub fn lfs_bd_sync(lfs: &Lfs, pcache: &mut LfsCache, rcache: &mut LfsCache, vali
             return crate::lfs_pass_err!(err);
         }
 
-        let cfg = &*lfs.cfg;
-        let sync = match cfg.sync {
-            Some(f) => f,
-            None => return LFS_ERR_CORRUPT,
-        };
-        let err = sync(cfg as *const _);
+        let res = lfs.storage.sync();
+        let err = from_empty_result(res);
         crate::lfs_assert!(err <= 0);
         err
     }
@@ -586,8 +574,8 @@ pub fn lfs_bd_sync(lfs: &Lfs, pcache: &mut LfsCache, rcache: &mut LfsCache, vali
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_prog(
-    lfs: &Lfs,
+pub fn lfs_bd_prog<S: Storage>(
+    lfs: &mut Lfs<S>,
     pcache: &mut LfsCache,
     rcache: &mut LfsCache,
     validate: bool,
@@ -678,15 +666,12 @@ pub fn lfs_bd_prog(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_erase(lfs: &Lfs, block: lfs_block_t) -> i32 {
+pub fn lfs_bd_erase<S: Storage>(lfs: &mut Lfs<S>, block: lfs_block_t) -> i32 {
     unsafe {
         crate::lfs_assert!(block < lfs.block_count);
-        let erase = match lfs.cfg.erase {
-            Some(f) => f,
-            None => return LFS_ERR_CORRUPT,
-        };
         crate::lfs_trace!("bd_erase block={}", block);
-        let err = erase(lfs.cfg, block);
+        let res = lfs.storage.erase(block);
+        let err = from_empty_result(res);
         crate::lfs_assert!(err <= 0);
         if err != 0 {
             crate::lfs_trace!("bd_erase block={} -> CORRUPT", block);

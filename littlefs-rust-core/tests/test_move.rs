@@ -30,7 +30,7 @@ fn test_move_nop() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -88,7 +88,7 @@ fn test_move_file() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -235,7 +235,7 @@ fn test_move_dir() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -313,7 +313,7 @@ fn test_move_state_stealing() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -449,7 +449,7 @@ fn test_move_create_delete_same() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -624,7 +624,7 @@ fn test_move_create_delete_delete_same() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -797,7 +797,7 @@ fn test_move_create_delete_different() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -877,7 +877,7 @@ fn test_move_file_corrupt_source() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -949,7 +949,7 @@ fn test_move_file_corrupt_source() {
 
     let ablock = dir_block(&mut lfs, &mut caches, "a");
     assert_ok(lfs_unmount(&mut lfs));
-    corrupt_block(&mut env, ablock);
+    corrupt_block(&mut lfs.storage, ablock);
 
     assert_ok(lfs_mount(
         &mut lfs,
@@ -1035,7 +1035,7 @@ fn test_move_file_corrupt_source_dest() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1108,8 +1108,8 @@ fn test_move_file_corrupt_source_dest() {
     let ablock = dir_block(&mut lfs, &mut caches, "a");
     let cblock = dir_block(&mut lfs, &mut caches, "c");
     assert_ok(lfs_unmount(&mut lfs));
-    corrupt_block(&mut env, ablock);
-    corrupt_block(&mut env, cblock);
+    corrupt_block(&mut lfs.storage, ablock);
+    corrupt_block(&mut lfs.storage, cblock);
 
     assert_ok(lfs_mount(
         &mut lfs,
@@ -1195,7 +1195,7 @@ fn test_move_file_after_corrupt() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1268,8 +1268,8 @@ fn test_move_file_after_corrupt() {
     let ablock = dir_block(&mut lfs, &mut caches, "a");
     let cblock = dir_block(&mut lfs, &mut caches, "c");
     assert_ok(lfs_unmount(&mut lfs));
-    corrupt_block(&mut env, ablock);
-    corrupt_block(&mut env, cblock);
+    corrupt_block(&mut lfs.storage, ablock);
+    corrupt_block(&mut lfs.storage, cblock);
 
     assert_ok(lfs_mount(
         &mut lfs,
@@ -1368,7 +1368,7 @@ fn test_move_reentrant_file() {
     let mut env = powerloss_config(128);
     init_powerloss_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1445,7 +1445,7 @@ fn test_move_dir_corrupt_source() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1497,7 +1497,7 @@ fn test_move_dir_corrupt_source() {
 
     let ablock = dir_block(&mut lfs, &mut caches, "a");
     assert_ok(lfs_unmount(&mut lfs));
-    corrupt_block(&mut env, ablock);
+    corrupt_block(&mut lfs.storage, ablock);
 
     assert_ok(lfs_mount(
         &mut lfs,
@@ -1571,7 +1571,7 @@ fn test_move_dir_corrupt_source_dest() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1624,8 +1624,8 @@ fn test_move_dir_corrupt_source_dest() {
     let ablock = dir_block(&mut lfs, &mut caches, "a");
     let cblock = dir_block(&mut lfs, &mut caches, "c");
     assert_ok(lfs_unmount(&mut lfs));
-    corrupt_block(&mut env, ablock);
-    corrupt_block(&mut env, cblock);
+    corrupt_block(&mut lfs.storage, ablock);
+    corrupt_block(&mut lfs.storage, cblock);
 
     assert_ok(lfs_mount(
         &mut lfs,
@@ -1699,7 +1699,7 @@ fn test_move_dir_after_corrupt() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1752,8 +1752,8 @@ fn test_move_dir_after_corrupt() {
     let ablock = dir_block(&mut lfs, &mut caches, "a");
     let cblock = dir_block(&mut lfs, &mut caches, "c");
     assert_ok(lfs_unmount(&mut lfs));
-    corrupt_block(&mut env, ablock);
-    corrupt_block(&mut env, cblock);
+    corrupt_block(&mut lfs.storage, ablock);
+    corrupt_block(&mut lfs.storage, cblock);
 
     assert_ok(lfs_mount(
         &mut lfs,
@@ -1840,7 +1840,7 @@ fn test_reentrant_dir() {
     let mut env = powerloss_config(128);
     init_powerloss_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     assert_ok(lfs_format(
         &mut lfs,
@@ -1916,7 +1916,7 @@ fn test_move_fix_relocation() {
     init_wear_leveling_context(&mut env);
 
     for relocations in 0..4u32 {
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.bd);
         let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
             &mut lfs,
@@ -2026,13 +2026,13 @@ fn test_move_fix_relocation() {
 
         if relocations & 1 != 0 {
             let pair = dir_pair(&mut lfs, &mut caches, "parent");
-            env.bd.set_wear(pair[0], 0xffffffff);
-            env.bd.set_wear(pair[1], 0xffffffff);
+            lfs.storage.set_wear(pair[0], 0xffffffff);
+            lfs.storage.set_wear(pair[1], 0xffffffff);
         }
         if relocations & 2 != 0 {
             let pair = dir_pair(&mut lfs, &mut caches, "parent/child");
-            env.bd.set_wear(pair[0], 0xffffffff);
-            env.bd.set_wear(pair[1], 0xffffffff);
+            lfs.storage.set_wear(pair[0], 0xffffffff);
+            lfs.storage.set_wear(pair[1], 0xffffffff);
         }
 
         assert_ok(lfs_rename(
@@ -2156,7 +2156,7 @@ fn test_move_fix_relocation_predecessor() {
     init_wear_leveling_context(&mut env);
 
     for relocations in 0..8u32 {
-        let mut lfs = Lfs::default();
+        let mut lfs = Lfs::new(&mut env.bd);
         let mut caches = LfsCaches::default();
         assert_ok(lfs_format(
             &mut lfs,
@@ -2271,18 +2271,18 @@ fn test_move_fix_relocation_predecessor() {
 
         if relocations & 1 != 0 {
             let pair = dir_pair(&mut lfs, &mut caches, "parent");
-            env.bd.set_wear(pair[0], 0xffffffff);
-            env.bd.set_wear(pair[1], 0xffffffff);
+            lfs.storage.set_wear(pair[0], 0xffffffff);
+            lfs.storage.set_wear(pair[1], 0xffffffff);
         }
         if relocations & 2 != 0 {
             let pair = dir_pair(&mut lfs, &mut caches, "parent/sibling");
-            env.bd.set_wear(pair[0], 0xffffffff);
-            env.bd.set_wear(pair[1], 0xffffffff);
+            lfs.storage.set_wear(pair[0], 0xffffffff);
+            lfs.storage.set_wear(pair[1], 0xffffffff);
         }
         if relocations & 4 != 0 {
             let pair = dir_pair(&mut lfs, &mut caches, "parent/child");
-            env.bd.set_wear(pair[0], 0xffffffff);
-            env.bd.set_wear(pair[1], 0xffffffff);
+            lfs.storage.set_wear(pair[0], 0xffffffff);
+            lfs.storage.set_wear(pair[1], 0xffffffff);
         }
 
         assert_ok(lfs_rename(

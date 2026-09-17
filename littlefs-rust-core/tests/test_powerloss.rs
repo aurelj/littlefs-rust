@@ -11,12 +11,12 @@ use common::{
         init_powerloss_context, powerloss_config, powerloss_config_with_behavior,
         run_powerloss_exhaustive, run_powerloss_linear, run_powerloss_log, PowerLossBehavior,
     },
-    read_block_raw, write_block_raw, LFS_O_APPEND, LFS_O_CREAT, LFS_O_RDONLY, LFS_O_WRONLY,
+    LFS_O_APPEND, LFS_O_CREAT, LFS_O_RDONLY, LFS_O_WRONLY,
 };
 use littlefs_rust_core::{
     lfs_dir_close, lfs_dir_open, lfs_file_close, lfs_file_open, lfs_file_read, lfs_file_sync,
     lfs_file_write, lfs_format, lfs_mkdir, lfs_mount, lfs_unmount, Lfs, LfsCaches, LfsConfig,
-    LfsDir, LfsFile, LFS_ERR_IO,
+    LfsDir, LfsFile, Storage, LFS_ERR_IO,
 };
 
 // --- test_powerloss_only_rev ---
@@ -27,7 +27,7 @@ fn test_powerloss_only_rev() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -123,29 +123,10 @@ fn test_powerloss_only_rev() {
     // Partial write: rev+1 in block
     let block_size = env.config.block_size as usize;
     let mut block_buf = vec![0u8; block_size];
-    let read_fn = env.config.read.expect("read");
-    unsafe {
-        read_fn(
-            &env.config as *const LfsConfig,
-            pair[1],
-            0,
-            block_buf.as_mut_ptr(),
-            block_size as u32,
-        );
-    }
+    let _ = lfs.storage.read(pair[1], 0, &mut block_buf);
     block_buf[0..4].copy_from_slice(&(rev + 1).to_le_bytes());
-    let erase_fn = env.config.erase.expect("erase");
-    let prog_fn = env.config.prog.expect("prog");
-    unsafe {
-        erase_fn(&env.config as *const LfsConfig, pair[1]);
-        prog_fn(
-            &env.config as *const LfsConfig,
-            pair[1],
-            0,
-            block_buf.as_ptr(),
-            block_size as u32,
-        );
-    }
+    let _ = lfs.storage.erase(pair[1]);
+    let _ = lfs.storage.write(pair[1], 0, &block_buf);
 
     assert_ok_at(
         "mount after corrupt",
@@ -259,7 +240,7 @@ fn test_powerloss_trigger_first_write() {
     init_powerloss_context(&mut env);
     env.set_fail_after_writes(1);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
     assert_eq!(
@@ -276,7 +257,7 @@ fn test_powerloss_runner_smoke() {
     let mut env = powerloss_config(128);
     init_powerloss_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -335,7 +316,7 @@ fn test_powerloss_partial_prog() {
             init_context(&mut env);
             let cfg = &env.config as *const LfsConfig;
 
-            let mut lfs = Lfs::default();
+            let mut lfs = Lfs::new(&mut env.ram);
             let mut caches = LfsCaches::default();
             assert_ok_at("format", lfs_format(&mut lfs, &mut caches, cfg));
             assert_ok_at("mount", lfs_mount(&mut lfs, &mut caches, cfg));
@@ -344,17 +325,9 @@ fn test_powerloss_partial_prog() {
             assert_ok_at("unmount", lfs_unmount(&mut lfs));
 
             let mut block = vec![0u8; BLOCK_SIZE as usize];
-            assert_eq!(
-                0,
-                read_block_raw(cfg, DIR_BLOCK, 0, &mut block),
-                "read_block_raw block {DIR_BLOCK}"
-            );
+            assert!(lfs.storage.read(DIR_BLOCK, 0, &mut block).is_ok());
             block[byte_off as usize] = byte_value;
-            assert_eq!(
-                0,
-                write_block_raw(cfg, DIR_BLOCK, 0, &block),
-                "write_block_raw block {DIR_BLOCK}"
-            );
+            assert!(lfs.storage.write(DIR_BLOCK, 0, &mut block).is_ok());
 
             assert_ok_at(
                 &format!("mount after corrupt off={byte_off} val=0x{byte_value:02x}"),
@@ -381,20 +354,23 @@ fn test_powerloss_snapshot_restore() {
     let mut env = powerloss_config(128);
     init_powerloss_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
         lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig),
     );
-    let snapshot = env.snapshot();
+    let snapshot = lfs.storage.snapshot();
 
     // Mutate ram
-    env.ctx.ram.data[0] = 0;
-    assert_ne!(env.ctx.ram.data[0], snapshot[0]);
+    let mut r = vec![0u8; snapshot.len()];
+    let _ = lfs.storage.write(0, 0, &[0]);
+    let _ = lfs.storage.read(0, 0, &mut r[0..1]);
+    assert_ne!(r[0], snapshot[0]);
 
-    env.restore(&snapshot);
-    assert_eq!(&env.ctx.ram.data[..], &snapshot[..]);
+    lfs.storage.restore(&snapshot);
+    let _ = lfs.storage.read(0, 0, &mut r);
+    assert_eq!(&r[..], &snapshot[..]);
 
     assert_ok_at(
         "mount after restore",
@@ -416,7 +392,7 @@ fn test_debug_file_root_single_write_sync() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -466,7 +442,7 @@ fn test_debug_file_root_repeated_write_sync() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -518,7 +494,7 @@ fn test_debug_file_subdir_which_sync_fails() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -574,7 +550,7 @@ fn test_debug_powerloss_after_corrupt_append() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -640,29 +616,10 @@ fn test_debug_powerloss_after_corrupt_append() {
 
     let block_size = env.config.block_size as usize;
     let mut block_buf = vec![0u8; block_size];
-    let read_fn = env.config.read.expect("read");
-    unsafe {
-        read_fn(
-            &env.config as *const LfsConfig,
-            pair[1],
-            0,
-            block_buf.as_mut_ptr(),
-            block_size as u32,
-        );
-    }
+    let _ = lfs.storage.read(pair[1], 0, &mut block_buf);
     block_buf[0..4].copy_from_slice(&(rev + 1).to_le_bytes());
-    let erase_fn = env.config.erase.expect("erase");
-    let prog_fn = env.config.prog.expect("prog");
-    unsafe {
-        erase_fn(&env.config as *const LfsConfig, pair[1]);
-        prog_fn(
-            &env.config as *const LfsConfig,
-            pair[1],
-            0,
-            block_buf.as_ptr(),
-            block_size as u32,
-        );
-    }
+    let _ = lfs.storage.erase(pair[1]);
+    let _ = lfs.storage.write(pair[1], 0, &block_buf);
 
     assert_ok_at(
         "mount after corrupt",
@@ -709,7 +666,7 @@ fn test_powerloss_runner_smoke_log() {
     let mut env = powerloss_config(128);
     init_powerloss_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -758,7 +715,7 @@ fn test_powerloss_runner_smoke_exhaustive() {
     let mut env = powerloss_config(128);
     init_powerloss_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -808,7 +765,7 @@ fn test_powerloss_ooo_smoke() {
     let mut env = powerloss_config_with_behavior(128, PowerLossBehavior::Ooo);
     init_powerloss_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
@@ -856,7 +813,7 @@ fn test_debug_file_subdir_single_write_sync() {
     let mut env = default_config(128);
     init_context(&mut env);
 
-    let mut lfs = Lfs::default();
+    let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
     assert_ok_at(
         "format",
