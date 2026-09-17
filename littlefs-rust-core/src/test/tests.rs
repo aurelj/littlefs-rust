@@ -6,14 +6,14 @@ use crate::Storage;
 use super::*;
 
 /// Minimal: construct TestContext and verify config/ram. No lfs calls.
-#[test]
-fn test_context_smoke() {
+#[tokio::test]
+async fn test_context_smoke() {
     let mut ctx = TestContext::default_blocks();
     let cfg = &ctx.config;
     assert!(!cfg.context.is_null(), "config.context should be set");
     // Direct read through callback
     let mut buf = [0u8; 8];
-    let res = unsafe { ctx.lfs.storage.read(0, 0, &mut buf) };
+    let res = ctx.lfs.storage.read(0, 0, &mut buf).await;
     let err = from_empty_result(res);
     assert_eq!(err, 0);
     assert_eq!(buf, [0u8; 8]);
@@ -28,9 +28,9 @@ fn test_context_lfs_init() {
 }
 
 /// Init + lookahead setup + lfs_dir_alloc. Stops before commit.
-#[test]
+#[tokio::test]
 #[ignore = "bug: crash with probable buffer overflow / memory corruption"]
-fn test_context_format_to_alloc() {
+async fn test_context_format_to_alloc() {
     use crate::block_alloc::alloc::lfs_alloc_ckpoint;
     use crate::dir::commit::lfs_dir_alloc;
     use crate::util::lfs_min;
@@ -61,7 +61,7 @@ fn test_context_format_to_alloc() {
         split: false,
         tail: [0, 0],
     };
-    let err = unsafe { lfs_dir_alloc(lfs, &mut ctx.caches, &mut root) };
+    let err = unsafe { lfs_dir_alloc(lfs, &mut ctx.caches, &mut root).await };
     assert_eq!(err, 0);
 }
 

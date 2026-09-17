@@ -48,7 +48,7 @@ impl RamStorage {
 }
 
 impl Storage for RamStorage {
-    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+    async fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
         let base = self.block_offset(block);
         let start = base + offset as usize;
         let end = start + buf.len();
@@ -56,7 +56,7 @@ impl Storage for RamStorage {
         Ok(())
     }
 
-    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+    async fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
         let base = self.block_offset(block);
         let start = base + offset as usize;
         let end = start + data.len();
@@ -64,7 +64,7 @@ impl Storage for RamStorage {
         Ok(())
     }
 
-    fn erase(&mut self, block: u32) -> Result<(), Error> {
+    async fn erase(&mut self, block: u32) -> Result<(), Error> {
         let base = self.block_offset(block);
         let end = base + self.block_size as usize;
         self.data[base..end].fill(0xff);
@@ -144,14 +144,14 @@ impl BadBlockRamStorage {
 }
 
 impl Storage for BadBlockRamStorage {
-    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+    async fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
         if self.is_bad(block) && self.behavior == BadBlockBehavior::ReadError {
             return Err(Error::Corrupt);
         }
-        self.ram.read(block, offset, buf)
+        self.ram.read(block, offset, buf).await
     }
 
-    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+    async fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
         if self.is_bad(block) {
             match self.behavior {
                 BadBlockBehavior::ProgError => return Err(Error::Corrupt),
@@ -159,10 +159,10 @@ impl Storage for BadBlockRamStorage {
                 _ => {}
             }
         }
-        self.ram.write(block, offset, data)
+        self.ram.write(block, offset, data).await
     }
 
-    fn erase(&mut self, block: u32) -> Result<(), Error> {
+    async fn erase(&mut self, block: u32) -> Result<(), Error> {
         if self.is_bad(block) {
             match self.behavior {
                 BadBlockBehavior::EraseError => return Err(Error::Corrupt),
@@ -170,7 +170,7 @@ impl Storage for BadBlockRamStorage {
                 _ => {}
             }
         }
-        self.ram.erase(block)
+        self.ram.erase(block).await
     }
 }
 
@@ -396,9 +396,9 @@ pub fn init_badblock_context(env: &mut BadBlockTestEnv) {
 /// Run `f` with a process-level timeout. If the closure does not complete within
 /// `secs` seconds, the process is aborted. Use for tests that may hang (e.g.
 /// infinite loops in write paths).
-pub fn run_with_timeout<F, R>(secs: u64, f: F) -> R
+pub async fn run_with_timeout<F, R>(secs: u64, f: F) -> R
 where
-    F: FnOnce() -> R,
+    F: AsyncFnOnce() -> R,
 {
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     let guard =
@@ -411,7 +411,7 @@ where
                 }
             },
         );
-    let result = f();
+    let result = f().await;
     let _ = tx.send(());
     guard.join().expect("timeout guard thread panicked");
     result
@@ -439,9 +439,9 @@ pub fn assert_err(expected: i32, actual: i32) {
 }
 
 /// Check if block has "littlefs" at offset 8 or 12 (layout varies by commit path).
-fn block_has_magic<S: Storage>(lfs: &mut littlefs_rust_core::Lfs<S>, block: u32) -> bool {
+async fn block_has_magic<S: Storage>(lfs: &mut littlefs_rust_core::Lfs<S>, block: u32) -> bool {
     let mut buf = [0u8; 24];
-    let res = lfs.storage.read(block, 0, &mut buf);
+    let res = lfs.storage.read(block, 0, &mut buf).await;
     let err = from_empty_result(res);
     if err != 0 {
         return false;
@@ -451,9 +451,9 @@ fn block_has_magic<S: Storage>(lfs: &mut littlefs_rust_core::Lfs<S>, block: u32)
 
 /// Assert "littlefs" in blocks 0 and 1 (at offset 8 or 12 depending on commit path).
 /// Both blocks must have magic per upstream.
-pub fn assert_superblock_magic<S: Storage>(lfs: &mut littlefs_rust_core::Lfs<S>) {
-    let has_0 = block_has_magic(lfs, 0);
-    let has_1 = block_has_magic(lfs, 1);
+pub async fn assert_superblock_magic<S: Storage>(lfs: &mut littlefs_rust_core::Lfs<S>) {
+    let has_0 = block_has_magic(lfs, 0).await;
+    let has_1 = block_has_magic(lfs, 1).await;
     assert!(
         has_0 && has_1,
         "both blocks 0 and 1 must have MAGIC: block 0={} block 1={}",
@@ -494,7 +494,7 @@ pub fn path_bytes(s: &str) -> Vec<u8> {
 }
 
 /// Read directory entry names (excluding "." and "..") from path. For use in dir tests.
-pub fn dir_entry_names<S: Storage>(
+pub async fn dir_entry_names<S: Storage>(
     lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     _config: *const LfsConfig,
@@ -504,7 +504,7 @@ pub fn dir_entry_names<S: Storage>(
 
     let path = path_bytes(path_str);
     let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
-    let err = lfs_dir_open(lfs, caches, dir.as_mut_ptr(), path.as_ptr());
+    let err = lfs_dir_open(lfs, caches, dir.as_mut_ptr(), path.as_ptr()).await;
     if err != 0 {
         return Err(err);
     }
@@ -512,7 +512,7 @@ pub fn dir_entry_names<S: Storage>(
     let mut names = Vec::new();
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
     loop {
-        let n = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr());
+        let n = lfs_dir_read(lfs, caches, dir.as_mut_ptr(), info.as_mut_ptr()).await;
         if n == 0 {
             break;
         }
@@ -552,7 +552,7 @@ pub const LFS_FILE_MAX: i32 = 2_147_483_647;
 
 /// Format, mount, create "hello" file with "Hello World!\0", unmount.
 /// Returns env. Caller mounts again before reading.
-pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
+pub async fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
     use littlefs_rust_core::{
         lfs_file_close, lfs_file_open, lfs_file_write, lfs_format, lfs_mount, lfs_unmount, Lfs,
         LfsCaches, LfsConfig, LfsFile,
@@ -561,11 +561,11 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
     init_context(env);
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
+    let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await;
     if err != 0 {
         return Err(err);
     }
-    let err = lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig);
+    let err = lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await;
     if err != 0 {
         return Err(err);
     }
@@ -579,18 +579,19 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
         file.as_mut_ptr(),
         path.as_ptr(),
         0x0100 | 2,
-    );
+    )
+    .await;
     if err != 0 {
         let _ = lfs_unmount(&mut lfs);
         return Err(err);
     }
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data).await;
     if n != data.len() as i32 {
-        let _ = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
+        let _ = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await;
         let _ = lfs_unmount(&mut lfs);
         return Err(if n < 0 { n } else { -1 });
     }
-    let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
+    let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await;
     if err != 0 {
         let _ = lfs_unmount(&mut lfs);
         return Err(err);
@@ -604,17 +605,17 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
 
 /// Get the metadata block number (`m.pair[0]`) for a directory while mounted.
 /// Caller must unmount before corrupting the returned block.
-pub fn dir_block<S: Storage>(
+pub async fn dir_block<S: Storage>(
     lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     dir_path: &str,
 ) -> u32 {
-    dir_pair(lfs, caches, dir_path)[0]
+    dir_pair(lfs, caches, dir_path).await[0]
 }
 
 /// Get both metadata block numbers (`m.pair[0]`, `m.pair[1]`) for a directory while mounted.
 /// Used by fix_relocation tests to set wear on dir pairs.
-pub fn dir_pair<S: Storage>(
+pub async fn dir_pair<S: Storage>(
     lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     dir_path: &str,
@@ -623,7 +624,7 @@ pub fn dir_pair<S: Storage>(
 
     let path = path_bytes(dir_path);
     let mut dir = core::mem::MaybeUninit::<LfsDir>::zeroed();
-    assert_ok(lfs_dir_open(lfs, caches, dir.as_mut_ptr(), path.as_ptr()));
+    assert_ok(lfs_dir_open(lfs, caches, dir.as_mut_ptr(), path.as_ptr()).await);
     let pair = unsafe { (*dir.as_ptr()).m.pair };
     assert_ok(lfs_dir_close(lfs, dir.as_mut_ptr()));
     [pair[0], pair[1]]
@@ -633,10 +634,10 @@ pub fn dir_pair<S: Storage>(
 /// Mirrors upstream test_move.toml corruption: find last non-erased (0xff) byte,
 /// then set bytes [off-3..off] to 0x00 (BLOCK_SIZE & 0xff for BLOCK_SIZE=512).
 /// Must be called while FS is unmounted.
-pub fn corrupt_block<S: Storage>(mut storage: S, block: u32) {
+pub async fn corrupt_block<S: Storage>(mut storage: S, block: u32) {
     let block_size = BLOCK_SIZE as usize;
     let mut buffer = vec![0u8; block_size];
-    let res = storage.read(block, 0, &mut buffer);
+    let res = storage.read(block, 0, &mut buffer).await;
     assert!(res.is_ok());
 
     let mut off = block_size as i32 - 1;
@@ -648,8 +649,8 @@ pub fn corrupt_block<S: Storage>(mut storage: S, block: u32) {
     let start = (off - 3) as usize;
     buffer[start..start + 3].fill(0x00);
 
-    let _ = storage.erase(block);
-    let _ = storage.write(block, 0, &buffer);
+    let _ = storage.erase(block).await;
+    let _ = storage.write(block, 0, &buffer).await;
 }
 
 /// Build test environment with the given block_count and inline_max.
@@ -670,12 +671,14 @@ pub fn config_with_inline_max(block_count: u32, inline_max: i32) -> TestEnv {
 
 /// Format fs, sync, return raw content of superblock blocks 0 and 1.
 /// Helper for debug tests. Caller must init_context before.
-pub fn format_and_read_superblock_blocks(env: &mut TestEnv) -> Result<(Vec<u8>, Vec<u8>), i32> {
+pub async fn format_and_read_superblock_blocks(
+    env: &mut TestEnv,
+) -> Result<(Vec<u8>, Vec<u8>), i32> {
     use littlefs_rust_core::{lfs_format, Lfs, LfsCaches};
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig);
+    let err = lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await;
     if err != 0 {
         return Err(err);
     }
@@ -683,8 +686,8 @@ pub fn format_and_read_superblock_blocks(env: &mut TestEnv) -> Result<(Vec<u8>, 
     let block_size = env.config.block_size as usize;
     let mut block0 = vec![0u8; block_size];
     let mut block1 = vec![0u8; block_size];
-    let res0 = env.ram.read(0, 0, &mut block0);
-    let res1 = env.ram.read(1, 0, &mut block1);
+    let res0 = env.ram.read(0, 0, &mut block0).await;
+    let res1 = env.ram.read(1, 0, &mut block1).await;
     if res0.is_err() || res1.is_err() {
         return Err(from_empty_result(if res0.is_err() { res0 } else { res1 }));
     }
@@ -782,14 +785,14 @@ impl WearLevelingBd {
 }
 
 impl Storage for WearLevelingBd {
-    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+    async fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
         if self.is_worn(block) && self.badblock_behavior == BadBlockBehavior::ReadError {
             return Err(Error::Corrupt);
         }
-        self.ram.read(block, offset, buf)
+        self.ram.read(block, offset, buf).await
     }
 
-    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+    async fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
         if self.is_worn(block) {
             match self.badblock_behavior {
                 BadBlockBehavior::ProgError => return Err(Error::Corrupt),
@@ -797,10 +800,10 @@ impl Storage for WearLevelingBd {
                 _ => {}
             }
         }
-        self.ram.write(block, offset, data)
+        self.ram.write(block, offset, data).await
     }
 
-    fn erase(&mut self, block: u32) -> Result<(), Error> {
+    async fn erase(&mut self, block: u32) -> Result<(), Error> {
         if self.erase_cycles > 0 {
             if self.wear[block as usize] >= self.erase_cycles {
                 match self.badblock_behavior {
@@ -986,7 +989,7 @@ pub fn advance_prng(state: &mut u32, n: u32) {
 ///     lfs_file_write(&lfs, &file, buffer, chunk) => chunk;
 /// }
 /// ```
-pub fn write_prng_file<S: Storage>(
+pub async fn write_prng_file<S: Storage>(
     lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
@@ -1002,7 +1005,8 @@ pub fn write_prng_file<S: Storage>(
         for slot in buffer[..chunk as usize].iter_mut() {
             *slot = (test_prng(&mut prng) & 0xff) as u8;
         }
-        let n = littlefs_rust_core::lfs_file_write(lfs, caches, file, &buffer[..chunk as usize]);
+        let n =
+            littlefs_rust_core::lfs_file_write(lfs, caches, file, &buffer[..chunk as usize]).await;
         assert_eq!(
             n, chunk as i32,
             "write_prng_file: expected {} bytes written at offset {}, got {}",
@@ -1015,7 +1019,7 @@ pub fn write_prng_file<S: Storage>(
 
 /// Like write_prng_file but returns Err on write failure (e.g. power-loss LFS_ERR_IO).
 /// Use in power-loss tests where writes can legitimately fail.
-pub fn write_prng_file_result<S: Storage>(
+pub async fn write_prng_file_result<S: Storage>(
     lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
@@ -1031,7 +1035,8 @@ pub fn write_prng_file_result<S: Storage>(
         for slot in buffer[..chunk as usize].iter_mut() {
             *slot = (test_prng(&mut prng) & 0xff) as u8;
         }
-        let n = littlefs_rust_core::lfs_file_write(lfs, caches, file, &buffer[..chunk as usize]);
+        let n =
+            littlefs_rust_core::lfs_file_write(lfs, caches, file, &buffer[..chunk as usize]).await;
         if n < 0 {
             return Err(n);
         }
@@ -1057,7 +1062,7 @@ pub fn write_prng_file_result<S: Storage>(
 ///     }
 /// }
 /// ```
-pub fn verify_prng_file<S: Storage>(
+pub async fn verify_prng_file<S: Storage>(
     lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
@@ -1070,7 +1075,8 @@ pub fn verify_prng_file<S: Storage>(
     let mut i: u32 = 0;
     while i < size {
         let chunk = core::cmp::min(chunk_size, size - i);
-        let n = littlefs_rust_core::lfs_file_read(lfs, caches, file, &mut buffer[..chunk as usize]);
+        let n = littlefs_rust_core::lfs_file_read(lfs, caches, file, &mut buffer[..chunk as usize])
+            .await;
         assert_eq!(
             n, chunk as i32,
             "verify_prng_file: expected {} bytes read at offset {}, got {}",
@@ -1090,7 +1096,7 @@ pub fn verify_prng_file<S: Storage>(
 
 /// Same as verify_prng_file but uses existing PRNG state (for verifying a tail after advance).
 /// Used when reading SIZE2..SIZE1 in test_files_rewrite (PRNG was advanced by SIZE2 from seed 1).
-pub fn verify_prng_file_with_state<S: Storage>(
+pub async fn verify_prng_file_with_state<S: Storage>(
     lfs: &mut littlefs_rust_core::Lfs<S>,
     caches: &mut littlefs_rust_core::LfsCaches,
     file: *mut littlefs_rust_core::LfsFile,
@@ -1102,7 +1108,8 @@ pub fn verify_prng_file_with_state<S: Storage>(
     let mut i: u32 = 0;
     while i < size {
         let chunk = core::cmp::min(chunk_size, size - i);
-        let n = littlefs_rust_core::lfs_file_read(lfs, caches, file, &mut buffer[..chunk as usize]);
+        let n = littlefs_rust_core::lfs_file_read(lfs, caches, file, &mut buffer[..chunk as usize])
+            .await;
         assert_eq!(
             n, chunk as i32,
             "verify_prng_file_with_state: expected {} bytes read at offset {}, got {}",

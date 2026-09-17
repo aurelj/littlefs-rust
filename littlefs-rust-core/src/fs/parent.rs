@@ -1,5 +1,9 @@
 //! FS parent. Per lfs.c lfs_fs_pred, lfs_fs_parent.
 
+use alloc::boxed::Box;
+use core::future::Future;
+use core::pin::Pin;
+
 use crate::bd::Storage;
 
 /// Per lfs.c lfs_fs_pred (lines 4796-4833)
@@ -37,7 +41,7 @@ use crate::bd::Storage;
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_pred<S: Storage>(
+pub async fn lfs_fs_pred<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     pair: &[crate::types::lfs_block_t; 2],
@@ -81,7 +85,7 @@ pub fn lfs_fs_pred<S: Storage>(
                 if !have_fetched {
                     // Matched before any fetch: tail [0,1] == pair (root).
                     // The root has no predecessor.
-                    let err = lfs_dir_fetch(lfs, caches, pdir, &(*pdir).tail);
+                    let err = lfs_dir_fetch(lfs, caches, pdir, &(*pdir).tail).await;
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
@@ -92,7 +96,7 @@ pub fn lfs_fs_pred<S: Storage>(
                 return 0;
             }
 
-            let err = lfs_dir_fetch(lfs, caches, pdir, &(*pdir).tail);
+            let err = lfs_dir_fetch(lfs, caches, pdir, &(*pdir).tail).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -129,7 +133,7 @@ const LFS_CMP_LT: i32 = 1;
 ///     return (lfs_pair_cmp(child, find->pair) == 0) ? LFS_CMP_EQ : LFS_CMP_LT;
 /// }
 /// ```
-fn lfs_fs_parent_match<S: Storage>(
+async fn lfs_fs_parent_match<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     find: &LfsFsParentMatch,
@@ -148,7 +152,8 @@ fn lfs_fs_parent_match<S: Storage>(
         disk.block,
         disk.off,
         &mut child_buf,
-    );
+    )
+    .await;
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
@@ -160,6 +165,23 @@ fn lfs_fs_parent_match<S: Storage>(
         LFS_CMP_EQ
     } else {
         LFS_CMP_LT
+    }
+}
+
+/// Adapter binding `LfsFsParentMatch` as an `lfs_dir_fetchmatch` callback.
+struct ParentMatchCb {
+    find_match: LfsFsParentMatch,
+}
+
+impl<S: Storage> crate::dir::fetch::FetchCb<S> for ParentMatchCb {
+    fn call<'a>(
+        &'a mut self,
+        lfs: &'a mut crate::fs::Lfs<S>,
+        caches: &'a mut crate::fs::LfsCaches,
+        tag: crate::types::lfs_tag_t,
+        off: &'a crate::tag::lfs_diskoff,
+    ) -> Pin<Box<dyn Future<Output = i32> + 'a>> {
+        Box::pin(lfs_fs_parent_match(lfs, caches, &self.find_match, tag, off))
     }
 }
 
@@ -199,7 +221,7 @@ fn lfs_fs_parent_match<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_parent<S: Storage>(
+pub async fn lfs_fs_parent<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     pair: *const [crate::types::lfs_block_t; 2],
@@ -251,10 +273,9 @@ pub fn lfs_fs_parent<S: Storage>(
                 lfs_mktag(0x7ff, 0, 0x3ff),
                 lfs_mktag(LFS_TYPE_DIRSTRUCT, 0, 8),
                 core::ptr::null_mut(),
-                Some(&|mut lfs, caches, tag, buffer| {
-                    lfs_fs_parent_match(lfs, caches, &find_match, tag, buffer)
-                }),
-            );
+                Some(&mut ParentMatchCb { find_match }),
+            )
+            .await;
 
             if tag != 0 && tag != crate::error::LFS_ERR_NOENT {
                 return tag;

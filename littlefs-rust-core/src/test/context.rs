@@ -51,22 +51,24 @@ impl TestContext {
     }
 
     /// Format the filesystem. Panics on error.
-    pub fn format(&mut self) {
+    pub async fn format(&mut self) {
         let err = lfs_format(
             &mut self.lfs,
             &mut self.caches,
             &self.config as *const LfsConfig,
-        );
+        )
+        .await;
         assert_eq!(err, 0, "lfs_format failed: {}", err);
     }
 
     /// Mount the filesystem. Panics on error.
-    pub fn mount(&mut self) {
+    pub async fn mount(&mut self) {
         let err = lfs_mount(
             &mut self.lfs,
             &mut self.caches,
             &self.config as *const LfsConfig,
-        );
+        )
+        .await;
         assert_eq!(err, 0, "lfs_mount failed: {}", err);
     }
 

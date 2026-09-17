@@ -47,7 +47,7 @@ impl RamStorage {
 }
 
 impl Storage for RamStorage {
-    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+    async fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
         let start = self.offset(block, offset);
         let end = start + buf.len();
         if end > self.data.len() {
@@ -57,7 +57,7 @@ impl Storage for RamStorage {
         Ok(())
     }
 
-    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+    async fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
         let start = self.offset(block, offset);
         let end = start + data.len();
         if end > self.data.len() {
@@ -67,7 +67,7 @@ impl Storage for RamStorage {
         Ok(())
     }
 
-    fn erase(&mut self, block: u32) -> Result<(), Error> {
+    async fn erase(&mut self, block: u32) -> Result<(), Error> {
         let start = self.offset(block, 0);
         let end = start + self.block_size as usize;
         if end > self.data.len() {

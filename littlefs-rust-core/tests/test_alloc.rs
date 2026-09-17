@@ -36,7 +36,8 @@ fn compact_thresh_u32(val: i32) -> u32 {
 /// Create breakfast dir, open 3 files in parallel, write SIZE bytes to each (optional GC),
 /// close, unmount, remount, read and verify.
 #[rstest]
-fn test_alloc_parallel(
+#[tokio::test]
+async fn test_alloc_parallel(
     #[values(false, true)] gc: bool,
     #[values(-1, 0, 256)] compact_thresh_val: i32,
     #[values(false, true)] infer_bc: bool,
@@ -53,31 +54,15 @@ fn test_alloc_parallel(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mount_cfg =
         clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("breakfast").as_ptr(),
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("breakfast").as_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
     let mut files: [core::mem::MaybeUninit<LfsFile>; 3] =
         core::array::from_fn(|_| core::mem::MaybeUninit::zeroed());
     for n in 0..FILES {
@@ -85,17 +70,20 @@ fn test_alloc_parallel(
             "breakfast/{}",
             core::str::from_utf8(NAMES[n as usize]).unwrap()
         ));
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            files[n as usize].as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                files[n as usize].as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
+            )
+            .await,
+        );
     }
     for n in 0..FILES {
         if gc {
-            assert_ok(lfs_fs_gc(&mut lfs, &mut caches));
+            assert_ok(lfs_fs_gc(&mut lfs, &mut caches).await);
         }
         let name = NAMES[n as usize];
         for i in (0..size).step_by(name.len()) {
@@ -105,46 +93,43 @@ fn test_alloc_parallel(
                 &mut caches,
                 files[n as usize].as_mut_ptr(),
                 &name[..chunk],
-            );
+            )
+            .await;
             assert_eq!(nw, chunk as i32);
         }
     }
     for n in 0..FILES {
-        assert_ok(lfs_file_close(
-            &mut lfs,
-            &mut caches,
-            files[n as usize].as_mut_ptr(),
-        ));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, files[n as usize].as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
     for n in 0..FILES {
         let path = path_bytes(&format!(
             "breakfast/{}",
             core::str::from_utf8(NAMES[n as usize]).unwrap()
         ));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_RDONLY,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_RDONLY,
+            )
+            .await,
+        );
         let name = NAMES[n as usize];
         let mut buf = [0u8; 16];
         for i in (0..size).step_by(name.len()) {
             let chunk = (size - i).min(name.len());
-            let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk]);
+            let nr =
+                lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk]).await;
             assert_eq!(nr, chunk as i32);
             assert_eq!(&buf[..chunk], &name[..chunk]);
         }
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(&mut lfs));
 }
@@ -157,7 +142,8 @@ fn test_alloc_parallel(
 /// Create breakfast dir, then for each file: mount, open, write SIZE bytes (optional GC per write),
 /// close, unmount. Remount and verify all files.
 #[rstest]
-fn test_alloc_serial(
+#[tokio::test]
+async fn test_alloc_serial(
     #[values(false, true)] gc: bool,
     #[values(-1, 0, 256)] compact_thresh_val: i32,
     #[values(false, true)] infer_bc: bool,
@@ -174,50 +160,37 @@ fn test_alloc_serial(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mount_cfg =
         clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("breakfast").as_ptr(),
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("breakfast").as_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     for n in 0..FILES {
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
         let path = path_bytes(&format!(
             "breakfast/{}",
             core::str::from_utf8(NAMES[n as usize]).unwrap()
         ));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
+            )
+            .await,
+        );
         let name = NAMES[n as usize];
         let mut buf = [0u8; 16];
         buf[..name.len()].copy_from_slice(name);
         for i in (0..size).step_by(name.len()) {
             if gc {
-                assert_ok(lfs_fs_gc(&mut lfs, &mut caches));
+                assert_ok(lfs_fs_gc(&mut lfs, &mut caches).await);
             }
             let chunk = (size - i).min(name.len());
             let nw = lfs_file_write(
@@ -225,31 +198,31 @@ fn test_alloc_serial(
                 &mut caches,
                 file.as_mut_ptr(),
                 &buf[..chunk as usize],
-            );
+            )
+            .await;
             assert_eq!(nw, chunk as i32);
         }
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         assert_ok(lfs_unmount(&mut lfs));
     }
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
     for n in 0..FILES {
         let path = path_bytes(&format!(
             "breakfast/{}",
             core::str::from_utf8(NAMES[n as usize]).unwrap()
         ));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_RDONLY,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_RDONLY,
+            )
+            .await,
+        );
         let name = NAMES[n as usize];
         let mut buf = [0u8; 16];
         for i in (0..size).step_by(name.len()) {
@@ -259,11 +232,12 @@ fn test_alloc_serial(
                 &mut caches,
                 file.as_mut_ptr(),
                 &mut buf[..chunk as usize],
-            );
+            )
+            .await;
             assert_eq!(nr, chunk as i32);
             assert_eq!(&buf[..chunk], &name[..chunk]);
         }
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(&mut lfs));
 }
@@ -275,7 +249,11 @@ fn test_alloc_serial(
 ///
 /// CYCLES iterations: create breakfast, write 3 files, read back, remove all.
 #[rstest]
-fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] infer_bc: bool) {
+#[tokio::test]
+async fn test_alloc_parallel_reuse(
+    #[values(1, 10)] cycles: u32,
+    #[values(false, true)] infer_bc: bool,
+) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
@@ -286,33 +264,17 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mount_cfg =
         clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
 
     for _c in 0..cycles {
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
-        assert_ok(lfs_mkdir(
-            &mut lfs,
-            &mut caches,
-            path_bytes("breakfast").as_ptr(),
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
+        assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("breakfast").as_ptr()).await);
         assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
         let mut files: [core::mem::MaybeUninit<LfsFile>; 3] =
             core::array::from_fn(|_| core::mem::MaybeUninit::zeroed());
         for n in 0..FILES {
@@ -320,13 +282,16 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
                 "breakfast/{}",
                 core::str::from_utf8(NAMES[n as usize]).unwrap()
             ));
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                files[n as usize].as_mut_ptr(),
-                path.as_ptr(),
-                LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    files[n as usize].as_mut_ptr(),
+                    path.as_ptr(),
+                    LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
+                )
+                .await,
+            );
         }
         for n in 0..FILES {
             let name = NAMES[n as usize];
@@ -337,66 +302,55 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
                     &mut caches,
                     files[n as usize].as_mut_ptr(),
                     &name[..chunk],
-                );
+                )
+                .await;
                 assert_eq!(nw, chunk as i32);
             }
         }
         for n in 0..FILES {
-            assert_ok(lfs_file_close(
-                &mut lfs,
-                &mut caches,
-                files[n as usize].as_mut_ptr(),
-            ));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, files[n as usize].as_mut_ptr()).await);
         }
         assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
         for n in 0..FILES {
             let path = path_bytes(&format!(
                 "breakfast/{}",
                 core::str::from_utf8(NAMES[n as usize]).unwrap()
             ));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                LFS_O_RDONLY,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    LFS_O_RDONLY,
+                )
+                .await,
+            );
             let name = NAMES[n as usize];
             let mut buf = [0u8; 16];
             for i in (0..size).step_by(name.len()) {
                 let chunk = (size - i).min(name.len());
-                let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk]);
+                let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk])
+                    .await;
                 assert_eq!(nr, chunk as i32);
                 assert_eq!(&buf[..chunk], &name[..chunk]);
             }
-            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         }
         assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
         for n in 0..FILES {
             let path = path_bytes(&format!(
                 "breakfast/{}",
                 core::str::from_utf8(NAMES[n as usize]).unwrap()
             ));
-            assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()));
+            assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()).await);
         }
-        assert_ok(lfs_remove(
-            &mut lfs,
-            &mut caches,
-            path_bytes("breakfast").as_ptr(),
-        ));
+        assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("breakfast").as_ptr()).await);
         assert_ok(lfs_unmount(&mut lfs));
     }
 }
@@ -408,7 +362,11 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
 ///
 /// CYCLES iterations: create breakfast, write each file serially, read back, remove all.
 #[rstest]
-fn test_alloc_serial_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] infer_bc: bool) {
+#[tokio::test]
+async fn test_alloc_serial_reuse(
+    #[values(1, 10)] cycles: u32,
+    #[values(false, true)] infer_bc: bool,
+) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
@@ -419,105 +377,87 @@ fn test_alloc_serial_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] 
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mount_cfg =
         clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
 
     for _c in 0..cycles {
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
-        assert_ok(lfs_mkdir(
-            &mut lfs,
-            &mut caches,
-            path_bytes("breakfast").as_ptr(),
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
+        assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("breakfast").as_ptr()).await);
         assert_ok(lfs_unmount(&mut lfs));
 
         for n in 0..FILES {
-            assert_ok(lfs_mount(
-                &mut lfs,
-                &mut caches,
-                &mount_cfg.config as *const LfsConfig,
-            ));
+            assert_ok(
+                lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await,
+            );
             let path = path_bytes(&format!(
                 "breakfast/{}",
                 core::str::from_utf8(NAMES[n as usize]).unwrap()
             ));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
+                )
+                .await,
+            );
             let name = NAMES[n as usize];
             let mut buf = [0u8; 16];
             buf[..name.len()].copy_from_slice(name);
             for i in (0..size).step_by(name.len()) {
                 let chunk = (size - i).min(name.len());
-                let nw = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &buf[..chunk]);
+                let nw =
+                    lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &buf[..chunk]).await;
                 assert_eq!(nw, chunk as i32);
             }
-            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
             assert_ok(lfs_unmount(&mut lfs));
         }
 
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
         for n in 0..FILES {
             let path = path_bytes(&format!(
                 "breakfast/{}",
                 core::str::from_utf8(NAMES[n as usize]).unwrap()
             ));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                LFS_O_RDONLY,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    LFS_O_RDONLY,
+                )
+                .await,
+            );
             let name = NAMES[n as usize];
             let mut buf = [0u8; 16];
             for i in (0..size).step_by(name.len()) {
                 let chunk = (size - i).min(name.len());
-                let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk]);
+                let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk])
+                    .await;
                 assert_eq!(nr, chunk as i32);
                 assert_eq!(&buf[..chunk], &name[..chunk]);
             }
-            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         }
         assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &mount_cfg.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
         for n in 0..FILES {
             let path = path_bytes(&format!(
                 "breakfast/{}",
                 core::str::from_utf8(NAMES[n as usize]).unwrap()
             ));
-            assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()));
+            assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()).await);
         }
-        assert_ok(lfs_remove(
-            &mut lfs,
-            &mut caches,
-            path_bytes("breakfast").as_ptr(),
-        ));
+        assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("breakfast").as_ptr()).await);
         assert_ok(lfs_unmount(&mut lfs));
     }
 }
@@ -529,45 +469,41 @@ fn test_alloc_serial_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] 
 /// Create file "exhaustion", write "exhaustion" then "blahblahblahblah" until NOSPC, GC, close,
 /// remount, read back and verify.
 #[rstest]
-fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
+#[tokio::test]
+async fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mount_cfg = clone_config_with_block_count(
         &env.config,
         if infer_bc { 0 } else { env.config.block_count },
     );
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     let exhaustion = b"exhaustion";
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), exhaustion);
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), exhaustion).await;
     assert_eq!(n, exhaustion.len() as i32);
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     let blah = b"blahblahblahblah";
     loop {
-        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah).await;
         if res < 0 {
             assert_err(LFS_ERR_NOSPC, res);
             break;
@@ -575,22 +511,21 @@ fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
         assert_eq!(res, blah.len() as i32);
     }
 
-    assert_ok(lfs_fs_gc(&mut lfs, &mut caches));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_fs_gc(&mut lfs, &mut caches).await);
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     let fsize = lfs_file_size(&mut lfs, file.as_mut_ptr());
     assert!(fsize >= exhaustion.len() as i32);
     let mut buf = [0u8; 16];
@@ -599,10 +534,11 @@ fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..exhaustion.len()],
-    );
+    )
+    .await;
     assert_eq!(n, exhaustion.len() as i32);
     assert_eq!(&buf[..exhaustion.len()], exhaustion);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -611,49 +547,39 @@ fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
 /// if = 'ERASE_SIZE == 512', defines.ERASE_COUNT = 1024
 ///
 /// Create dir with files, verify stat. (Geometry-specific; uses default_config.)
-#[test]
-fn test_alloc_split_dir() {
+#[tokio::test]
+async fn test_alloc_split_dir() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("d").as_ptr()));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("d").as_ptr()).await);
     for i in 0..8 {
         let path = path_bytes(&format!("d/f{i}"));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT,
-        ));
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"x");
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT,
+            )
+            .await,
+        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"x").await;
         assert_eq!(n, 1);
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
     for i in 0..8 {
         let path = path_bytes(&format!("d/f{i}"));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-        assert_ok(lfs_stat(
-            &mut lfs,
-            &mut caches,
-            path.as_ptr(),
-            info.as_mut_ptr(),
-        ));
+        assert_ok(lfs_stat(&mut lfs, &mut caches, path.as_ptr(), info.as_mut_ptr()).await);
         let info = unsafe { info.assume_init() };
         let nul = info.name.iter().position(|&b| b == 0).unwrap_or(256);
         assert_eq!(
@@ -671,7 +597,8 @@ fn test_alloc_split_dir() {
 ///
 /// Fill padding file, remove, create exhaustion file, write until NOSPC, GC, remount, verify.
 #[rstest]
-fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
+#[tokio::test]
+async fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
@@ -682,28 +609,23 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mount_cfg =
         clone_config_with_block_count(&env.config, if infer_bc { 0 } else { block_count });
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("padding").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("padding").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     let buffering = b"buffering";
     for i in (0..size).step_by(buffering.len()) {
         let chunk = (size - i).min(buffering.len());
@@ -712,31 +634,31 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
             &mut caches,
             file.as_mut_ptr(),
             &buffering[..chunk],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("padding").as_ptr(),
-    ));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("padding").as_ptr()).await);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     let exhaustion = b"exhaustion";
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), exhaustion);
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), exhaustion).await;
     assert_eq!(n, exhaustion.len() as i32);
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     let blah = b"blahblahblahblah";
     loop {
-        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah).await;
         if res < 0 {
             assert_eq!(res, littlefs_rust_core::LFS_ERR_NOSPC);
             break;
@@ -744,22 +666,21 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
         assert_eq!(res, blah.len() as i32);
     }
 
-    assert_ok(lfs_fs_gc(&mut lfs, &mut caches));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_fs_gc(&mut lfs, &mut caches).await);
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     let fsize = lfs_file_size(&mut lfs, file.as_mut_ptr());
     assert!(fsize >= exhaustion.len() as i32);
     let mut buf = [0u8; 16];
@@ -768,15 +689,12 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..exhaustion.len()],
-    );
+    )
+    .await;
     assert_eq!(n, exhaustion.len() as i32);
     assert_eq!(&buf[..exhaustion.len()], exhaustion);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustion").as_ptr(),
-    ));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustion").as_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -786,7 +704,8 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
 ///
 /// Find max file size, verify mkdir fits with count writes, fails with count+1.
 #[rstest]
-fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
+#[tokio::test]
+async fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
@@ -797,36 +716,27 @@ fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &mount_cfg.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &mount_cfg.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustiondir").as_ptr(),
-    ));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     let blah = b"blahblahblahblah";
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
 
     let mut count = 0i32;
     loop {
-        let err = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
+        let err = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah).await;
         if err < 0 {
             assert_err(LFS_ERR_NOSPC, err);
             break;
@@ -835,70 +745,52 @@ fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
         count += 1;
     }
 
-    assert_ok(lfs_fs_gc(&mut lfs, &mut caches));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustion").as_ptr(),
-    ));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustiondir").as_ptr(),
-    ));
+    assert_ok(lfs_fs_gc(&mut lfs, &mut caches).await);
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustion").as_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await);
 
     // Recreate with count writes; mkdir should succeed
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     for _ in 0..count {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah).await;
         assert_eq!(n, blah.len() as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustiondir").as_ptr(),
-    ));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustiondir").as_ptr(),
-    ));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustion").as_ptr(),
-    ));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustion").as_ptr()).await);
 
     // Recreate with count+1 writes; mkdir should fail NOSPC
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     for _ in 0..(count + 1) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah).await;
         assert_eq!(n, blah.len() as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
-    let err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr());
+    let err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await;
     assert_err(LFS_ERR_NOSPC, err);
 
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustion").as_ptr(),
-    ));
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustion").as_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -906,8 +798,8 @@ fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
 
 // --- test_alloc_two_files_ctz ---
 // Reproduces dir corruption: pacman fill+shrink, ghost fill to NOSPC, GC, read pacman.
-#[test]
-fn test_alloc_two_files_ctz() {
+#[tokio::test]
+async fn test_alloc_two_files_ctz() {
     init_logger();
     let mut env = default_config(48);
     init_context(&mut env);
@@ -915,97 +807,93 @@ fn test_alloc_two_files_ctz() {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("pacman").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("pacman").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     let waka = b"waka";
     let mut filesize: usize = 0;
     loop {
-        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka).await;
         if res == LFS_ERR_NOSPC {
             break;
         }
         assert_eq!(res, waka.len() as i32);
         filesize += waka.len();
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     filesize = filesize.saturating_sub(3 * block_size as usize);
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("pacman").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("pacman").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
+        )
+        .await,
+    );
     for _ in (0..filesize).step_by(waka.len()) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka).await;
         assert_eq!(n, waka.len() as i32);
     }
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     let pacman_head = unsafe { (*file.as_mut_ptr()).ctz.head };
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("ghost").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("ghost").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     let chomp = b"chomp";
     loop {
-        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp);
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp).await;
         if res == LFS_ERR_NOSPC {
             break;
         }
         assert_eq!(res, chomp.len() as i32);
     }
-    assert_ok(lfs_fs_gc(&mut lfs, &mut caches));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_fs_gc(&mut lfs, &mut caches).await);
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("pacman").as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("pacman").as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     let open_head = unsafe { (*file.as_ptr()).ctz.head };
     assert_eq!(
         open_head, pacman_head,
         "pacman ctz.head after ghost fill+GC: expected {} got {}",
         pacman_head, open_head
     );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -1018,15 +906,13 @@ const MAX_FILL_ITER: u32 = 50_000;
 /// defines.ERASE_CYCLES = 0xffffffff, defines.BADBLOCK_BEHAVIOR = LFS_EMUBD_BADBLOCK_READERROR
 ///
 /// Fill pacman, shrink, mark block bad, ghost write until CORRUPT, clear bad, ghost to NOSPC, GC, verify pacman.
-#[test]
-fn test_alloc_bad_blocks() {
+#[tokio::test]
+async fn test_alloc_bad_blocks() {
     init_logger();
-    run_with_timeout(30, || {
-        test_alloc_bad_blocks_body();
-    });
+    run_with_timeout(30, test_alloc_bad_blocks_body).await;
 }
 
-fn test_alloc_bad_blocks_body() {
+async fn test_alloc_bad_blocks_body() {
     // Match upstream C: block_count 128 (test_alloc.toml default)
     let mut env = config_badblock(128);
     init_badblock_context(&mut env);
@@ -1035,25 +921,20 @@ fn test_alloc_bad_blocks_body() {
 
     let mut lfs = Lfs::new(&mut env.badblock_ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("pacman").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("pacman").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
 
     let waka = b"waka";
     let mut filesize: usize = 0;
@@ -1065,30 +946,33 @@ fn test_alloc_bad_blocks_body() {
             MAX_FILL_ITER
         );
         iter += 1;
-        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka).await;
         if res == LFS_ERR_NOSPC {
             break;
         }
         assert_eq!(res, waka.len() as i32);
         filesize += waka.len();
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     filesize = filesize.saturating_sub(3 * block_size as usize);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("pacman").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("pacman").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
+        )
+        .await,
+    );
     for _ in (0..filesize).step_by(waka.len()) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka).await;
         assert_eq!(n, waka.len() as i32);
     }
 
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     let fileblock = unsafe { (*file.as_mut_ptr()).ctz.head };
     let block_count = env.config.block_count;
     assert!(
@@ -1097,24 +981,23 @@ fn test_alloc_bad_blocks_body() {
         fileblock,
         block_count
     );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     lfs.storage.set_bad_block(fileblock);
 
     // Open ghost, write until CORRUPT (alloc hits bad block), close.
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("ghost").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("ghost").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     let chomp = b"chomp";
     let mut iter: u32 = 0;
     loop {
@@ -1124,24 +1007,27 @@ fn test_alloc_bad_blocks_body() {
             MAX_FILL_ITER
         );
         iter += 1;
-        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp);
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp).await;
         if res == LFS_ERR_CORRUPT || res == LFS_ERR_NOSPC {
             break;
         }
         assert_eq!(res, chomp.len() as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     lfs.storage.clear_bad_block(fileblock);
 
     // Write ghost to NOSPC, then GC, close, unmount.
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("ghost").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("ghost").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     let mut iter: u32 = 0;
     loop {
         assert!(
@@ -1150,28 +1036,27 @@ fn test_alloc_bad_blocks_body() {
             MAX_FILL_ITER
         );
         iter += 1;
-        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp);
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp).await;
         if res == LFS_ERR_NOSPC {
             break;
         }
         assert_eq!(res, chomp.len() as i32);
     }
-    assert_ok(lfs_fs_gc(&mut lfs, &mut caches));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_fs_gc(&mut lfs, &mut caches).await);
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("pacman").as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("pacman").as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     let open_head = unsafe { (*file.as_ptr()).ctz.head };
     assert!(
         open_head < env.config.block_count,
@@ -1186,7 +1071,8 @@ fn test_alloc_bad_blocks_body() {
             &mut caches,
             file.as_mut_ptr(),
             &mut rbuf[..waka.len()],
-        );
+        )
+        .await;
         if n != waka.len() as i32 {
             common::dump::dump_fs(
                 &env.badblock_ram.ram.data,
@@ -1202,7 +1088,7 @@ fn test_alloc_bad_blocks_body() {
         }
         assert_eq!(&rbuf[..waka.len()], waka);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -1211,51 +1097,45 @@ fn test_alloc_bad_blocks_body() {
 /// if = 'ERASE_SIZE == 512', defines.ERASE_COUNT = 1024
 ///
 /// Find max file size, chained dir fails, truncate until mkdir succeeds.
-#[test]
-fn test_alloc_chained_dir_exhaustion() {
+#[tokio::test]
+async fn test_alloc_chained_dir_exhaustion() {
     init_logger();
     let mut env = config_with_geometry(512, 1024);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustiondir").as_ptr(),
-    ));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await);
     for i in 0..10 {
-        assert_ok(lfs_mkdir(
-            &mut lfs,
-            &mut caches,
-            path_bytes(&format!("dirwithanexhaustivelylongnameforpadding{i}")).as_ptr(),
-        ));
+        assert_ok(
+            lfs_mkdir(
+                &mut lfs,
+                &mut caches,
+                path_bytes(&format!("dirwithanexhaustivelylongnameforpadding{i}")).as_ptr(),
+            )
+            .await,
+        );
     }
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     let blah = b"blahblahblahblah";
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
 
     let mut count = 0i32;
     loop {
-        let err = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
+        let err = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah).await;
         if err < 0 {
             assert_err(LFS_ERR_NOSPC, err);
             break;
@@ -1263,72 +1143,68 @@ fn test_alloc_chained_dir_exhaustion() {
         count += 1;
     }
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustion").as_ptr(),
-    ));
-    assert_ok(lfs_remove(
-        &mut lfs,
-        &mut caches,
-        path_bytes("exhaustiondir").as_ptr(),
-    ));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustion").as_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await);
     for i in 0..10 {
-        assert_ok(lfs_remove(
-            &mut lfs,
-            &mut caches,
-            path_bytes(&format!("dirwithanexhaustivelylongnameforpadding{i}")).as_ptr(),
-        ));
+        assert_ok(
+            lfs_remove(
+                &mut lfs,
+                &mut caches,
+                path_bytes(&format!("dirwithanexhaustivelylongnameforpadding{i}")).as_ptr(),
+            )
+            .await,
+        );
     }
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     for _ in 0..(count + 1) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah).await;
         assert_eq!(n, blah.len() as i32);
     }
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     for i in 0..10 {
-        assert_ok(lfs_mkdir(
-            &mut lfs,
-            &mut caches,
-            path_bytes(&format!("dirwithanexhaustivelylongnameforpadding{i}")).as_ptr(),
-        ));
+        assert_ok(
+            lfs_mkdir(
+                &mut lfs,
+                &mut caches,
+                path_bytes(&format!("dirwithanexhaustivelylongnameforpadding{i}")).as_ptr(),
+            )
+            .await,
+        );
     }
 
     let mut err: i32;
-    err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr());
+    err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await;
     assert_err(LFS_ERR_NOSPC, err);
 
     loop {
-        err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr());
+        err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir").as_ptr()).await;
         if err != LFS_ERR_NOSPC {
             break;
         }
         let filesize = lfs_file_size(&mut lfs, file.as_mut_ptr());
         assert!(filesize > 0, "need positive file size to truncate");
         let new_size = (filesize - blah.len() as i32).max(0) as u32;
-        assert_ok(lfs_file_truncate(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            new_size,
-        ));
-        assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), new_size).await);
+        assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
     assert_ok(err);
 
-    err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir2").as_ptr());
+    err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("exhaustiondir2").as_ptr()).await;
     assert_err(LFS_ERR_NOSPC, err);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -1337,8 +1213,8 @@ fn test_alloc_chained_dir_exhaustion() {
 /// if = 'ERASE_SIZE == 512', defines.ERASE_COUNT = 1024
 ///
 /// Fill two files, remount, truncate+rewrite both; verify lookahead uses fresh population.
-#[test]
-fn test_alloc_outdated_lookahead() {
+#[tokio::test]
+async fn test_alloc_outdated_lookahead() {
     init_logger();
     let mut env = config_with_geometry(512, 1024);
     init_context(&mut env);
@@ -1350,81 +1226,81 @@ fn test_alloc_outdated_lookahead() {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     let blah = b"blahblahblahblah";
     let chunk = blah.len();
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion1").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion1").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     for _ in (0..size1).step_by(chunk) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]).await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion2").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion2").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     for _ in (0..size2).step_by(chunk) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]).await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     assert_ok(lfs_unmount(&mut lfs));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion1").as_ptr(),
-        LFS_O_WRONLY | LFS_O_TRUNC,
-    ));
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion1").as_ptr(),
+            LFS_O_WRONLY | LFS_O_TRUNC,
+        )
+        .await,
+    );
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     for _ in (0..size1).step_by(chunk) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]).await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion2").as_ptr(),
-        LFS_O_WRONLY | LFS_O_TRUNC,
-    ));
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion2").as_ptr(),
+            LFS_O_WRONLY | LFS_O_TRUNC,
+        )
+        .await,
+    );
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     for _ in (0..size2).step_by(chunk) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]).await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     assert_ok(lfs_unmount(&mut lfs));
 }
@@ -1434,8 +1310,8 @@ fn test_alloc_outdated_lookahead() {
 /// if = 'ERASE_SIZE == 512', defines.ERASE_COUNT = 1024
 ///
 /// Fill two files, remount, truncate one with hole; mkdir fails NOSPC, file create succeeds.
-#[test]
-fn test_alloc_outdated_lookahead_split_dir() {
+#[tokio::test]
+async fn test_alloc_outdated_lookahead_split_dir() {
     init_logger();
     let mut env = config_with_geometry(512, 1024);
     init_context(&mut env);
@@ -1448,81 +1324,81 @@ fn test_alloc_outdated_lookahead_split_dir() {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
     let blah = b"blahblahblahblah";
     let chunk = blah.len();
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion1").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion1").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     for _ in (0..size1_full).step_by(chunk) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]).await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion2").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion2").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
     for _ in (0..size2).step_by(chunk) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]).await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     assert_ok(lfs_unmount(&mut lfs));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("exhaustion1").as_ptr(),
-        LFS_O_WRONLY | LFS_O_TRUNC,
-    ));
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("exhaustion1").as_ptr(),
+            LFS_O_WRONLY | LFS_O_TRUNC,
+        )
+        .await,
+    );
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     for _ in (0..size1_hole).step_by(chunk) {
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]).await;
         assert_eq!(n, chunk as i32);
     }
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
-    let err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("split").as_ptr());
+    let err = lfs_mkdir(&mut lfs, &mut caches, path_bytes("split").as_ptr()).await;
     assert_err(LFS_ERR_NOSPC, err);
 
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("notasplit").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hi");
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("notasplit").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hi").await;
     assert_eq!(n, 2);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     assert_ok(lfs_unmount(&mut lfs));
 }

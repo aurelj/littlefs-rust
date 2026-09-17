@@ -193,7 +193,7 @@ impl SharedStorage {
 }
 
 impl Storage for SharedStorage {
-    fn read(
+    async fn read(
         &mut self,
         block: lfs_block_t,
         offset: u32,
@@ -202,7 +202,7 @@ impl Storage for SharedStorage {
         littlefs_rust_core::error::from_lfs_result(self.read_impl(block, offset, buf))
     }
 
-    fn write(
+    async fn write(
         &mut self,
         block: lfs_block_t,
         offset: u32,
@@ -211,7 +211,7 @@ impl Storage for SharedStorage {
         littlefs_rust_core::error::from_lfs_result(self.prog_impl(block, offset, data))
     }
 
-    fn erase(&mut self, block: lfs_block_t) -> Result<(), littlefs_rust_core::Error> {
+    async fn erase(&mut self, block: lfs_block_t) -> Result<(), littlefs_rust_core::Error> {
         littlefs_rust_core::error::from_lfs_result(self.erase_impl(block))
     }
 }

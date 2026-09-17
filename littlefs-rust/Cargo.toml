@@ -20,6 +20,7 @@ bitflags = "2"
 
 [dev-dependencies]
 env_logger = "0.10"
+tokio = { version = "1", features = ["rt", "macros"] }
 
 [features]
 default = ["alloc"]

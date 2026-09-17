@@ -40,14 +40,14 @@ use crate::dir::LfsMdir;
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_mkconsistent_<S: Storage>(
+pub async fn lfs_fs_mkconsistent_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
 ) -> i32 {
     use crate::dir::commit::lfs_dir_commit;
     use crate::lfs_gstate::{lfs_gstate_iszero, lfs_gstate_xor};
 
-    let err = super::superblock::lfs_fs_forceconsistency(lfs, caches);
+    let err = super::superblock::lfs_fs_forceconsistency(lfs, caches).await;
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
@@ -63,12 +63,12 @@ pub fn lfs_fs_mkconsistent_<S: Storage>(
         if !lfs_gstate_iszero(&delta) {
             let mut root = core::mem::zeroed::<LfsMdir>();
             let root_pair = lfs.root;
-            let err = lfs_dir_fetch(lfs, caches, &mut root, &root_pair);
+            let err = lfs_dir_fetch(lfs, caches, &mut root, &root_pair).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
 
-            let err = lfs_dir_commit(lfs, caches, &mut root, core::ptr::null(), 0);
+            let err = lfs_dir_commit(lfs, caches, &mut root, core::ptr::null(), 0).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -133,7 +133,7 @@ pub fn lfs_fs_mkconsistent_<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_gc_<S: Storage>(
+pub async fn lfs_fs_gc_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
 ) -> i32 {
@@ -142,7 +142,7 @@ pub fn lfs_fs_gc_<S: Storage>(
     use crate::util::{lfs_min, lfs_pair_isnull};
 
     crate::lfs_trace!("lfs_fs_gc: start");
-    let err = super::superblock::lfs_fs_forceconsistency(lfs, caches);
+    let err = super::superblock::lfs_fs_forceconsistency(lfs, caches).await;
     crate::lfs_trace!("lfs_fs_gc: after forceconsistency err={}", err);
     if err != 0 {
         return crate::lfs_pass_err!(err);
@@ -182,7 +182,7 @@ pub fn lfs_fs_gc_<S: Storage>(
                     }
                     iter += 1;
                 }
-                let err = lfs_dir_fetch(lfs, caches, &mut mdir, &mdir.tail);
+                let err = lfs_dir_fetch(lfs, caches, &mut mdir, &mdir.tail).await;
                 if err != 0 {
                     return crate::lfs_pass_err!(err);
                 }
@@ -197,7 +197,7 @@ pub fn lfs_fs_gc_<S: Storage>(
                 if should_compact {
                     let mdir_ref = &mut mdir;
                     mdir_ref.erased = false;
-                    let err = lfs_dir_commit(lfs, caches, mdir_ref, core::ptr::null(), 0);
+                    let err = lfs_dir_commit(lfs, caches, mdir_ref, core::ptr::null(), 0).await;
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
@@ -209,7 +209,7 @@ pub fn lfs_fs_gc_<S: Storage>(
         let block_count = lfs.block_count;
         if lfs.lookahead.size < lfs_min(8 * lookahead_size, block_count) {
             crate::lfs_trace!("lfs_fs_gc: alloc_scan start");
-            let err = lfs_alloc_scan(lfs, caches);
+            let err = lfs_alloc_scan(lfs, caches).await;
             crate::lfs_trace!("lfs_fs_gc: alloc_scan done err={}", err);
             if err != 0 {
                 return crate::lfs_pass_err!(err);

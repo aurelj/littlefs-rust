@@ -32,56 +32,51 @@ const BLOCK_COUNT_MANY: u32 = 256;
 ///
 /// Create, write "Hello World!\0", close, unmount, mount, read, verify.
 #[rstest]
-fn test_files_simple(#[values(0, -1, 8)] inline_max: i32) {
+#[tokio::test]
+async fn test_files_simple(#[values(0, -1, 8)] inline_max: i32) {
     let mut env = config_with_inline_max(128, inline_max);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("hello");
     let data = b"Hello World!\0";
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-    ));
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+        )
+        .await,
+    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data).await;
     assert_eq!(n, data.len() as i32);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..32]);
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..32]).await;
     assert_eq!(n, data.len() as i32);
     assert_eq!(&buf[..n as usize], data);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -93,7 +88,8 @@ fn test_files_simple(#[values(0, -1, 8)] inline_max: i32) {
 /// Write SIZE bytes of PRNG(seed=1) in CHUNKSIZE chunks, unmount, remount,
 /// verify file_size == SIZE, read back and verify. Final read past EOF returns 0.
 #[rstest]
-fn test_files_large(
+#[tokio::test]
+async fn test_files_large(
     #[values(32, 8192, 262144, 0, 7, 8193)] size: u32,
     #[values(31, 16, 33, 1, 1023)] chunk_size: u32,
     #[values(0, -1, 8)] inline_max: i32,
@@ -103,27 +99,22 @@ fn test_files_large(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     // write
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let path = path_bytes("avacado");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+        )
+        .await,
+    );
     write_prng_file(
         &mut lfs,
         &mut caches,
@@ -131,23 +122,23 @@ fn test_files_large(
         size,
         chunk_size,
         1,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // read
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), size as i32);
     verify_prng_file(
         &mut lfs,
@@ -156,7 +147,8 @@ fn test_files_large(
         size,
         chunk_size,
         1,
-    );
+    )
+    .await;
     // Final read past EOF returns 0
     let mut buf = [0u8; 1024];
     let n = lfs_file_read(
@@ -164,9 +156,10 @@ fn test_files_large(
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..chunk_size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -179,7 +172,8 @@ fn test_files_large(
 /// Write SIZE1, read back, rewrite with SIZE2 (WRONLY, no TRUNC), read:
 /// first SIZE2 bytes PRNG(2), remaining (SIZE2..SIZE1) PRNG(1) from offset SIZE2.
 #[rstest]
-fn test_files_rewrite(
+#[tokio::test]
+async fn test_files_rewrite(
     #[values(32, 8192, 131072, 0, 7, 8193)] size1: u32,
     #[values(32, 8192, 131072, 0, 7, 8193)] size2: u32,
     #[values(31, 16, 1)] chunk_size: u32,
@@ -190,28 +184,23 @@ fn test_files_rewrite(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("avacado");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
 
     // write SIZE1
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+        )
+        .await,
+    );
     write_prng_file(
         &mut lfs,
         &mut caches,
@@ -219,23 +208,23 @@ fn test_files_rewrite(
         size1,
         chunk_size,
         1,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // read SIZE1
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), size1 as i32);
     verify_prng_file(
         &mut lfs,
@@ -244,23 +233,23 @@ fn test_files_rewrite(
         size1,
         chunk_size,
         1,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // rewrite SIZE2 (WRONLY, no TRUNC)
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY,
+        )
+        .await,
+    );
     write_prng_file(
         &mut lfs,
         &mut caches,
@@ -268,23 +257,23 @@ fn test_files_rewrite(
         size2,
         chunk_size,
         2,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // read: first SIZE2 = PRNG(2), then SIZE2..SIZE1 (if size1 > size2) = PRNG(1) from offset SIZE2
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(
         lfs_file_size(&mut lfs, file.as_mut_ptr()),
         size1.max(size2) as i32
@@ -296,7 +285,8 @@ fn test_files_rewrite(
         size2,
         chunk_size,
         2,
-    );
+    )
+    .await;
     if size1 > size2 {
         let mut prng = 1u32;
         advance_prng(&mut prng, size2);
@@ -307,7 +297,8 @@ fn test_files_rewrite(
             size1 - size2,
             chunk_size,
             &mut prng,
-        );
+        )
+        .await;
     }
     // Final read past EOF returns 0
     let mut buf = [0u8; 1024];
@@ -316,9 +307,10 @@ fn test_files_rewrite(
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..chunk_size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -330,7 +322,8 @@ fn test_files_rewrite(
 ///
 /// Write SIZE1, append SIZE2 (PRNG seed 2). Read: first SIZE1 = PRNG(1), next SIZE2 = PRNG(2).
 #[rstest]
-fn test_files_append(
+#[tokio::test]
+async fn test_files_append(
     #[values(32, 8192, 131072, 0, 7, 8193)] size1: u32,
     #[values(32, 8192, 131072, 0, 7, 8193)] size2: u32,
     #[values(31, 16, 1)] chunk_size: u32,
@@ -341,28 +334,23 @@ fn test_files_append(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("avacado");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
 
     // write SIZE1
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+        )
+        .await,
+    );
     write_prng_file(
         &mut lfs,
         &mut caches,
@@ -370,23 +358,23 @@ fn test_files_append(
         size1,
         chunk_size,
         1,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // append SIZE2
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_APPEND,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_APPEND,
+        )
+        .await,
+    );
     write_prng_file(
         &mut lfs,
         &mut caches,
@@ -394,23 +382,23 @@ fn test_files_append(
         size2,
         chunk_size,
         2,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // read: SIZE1 + SIZE2, first PRNG(1) then PRNG(2)
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(
         lfs_file_size(&mut lfs, file.as_mut_ptr()),
         (size1 + size2) as i32
@@ -422,7 +410,8 @@ fn test_files_append(
         size1,
         chunk_size,
         1,
-    );
+    )
+    .await;
     verify_prng_file(
         &mut lfs,
         &mut caches,
@@ -430,8 +419,9 @@ fn test_files_append(
         size2,
         chunk_size,
         2,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -443,7 +433,8 @@ fn test_files_append(
 ///
 /// Write SIZE1, truncate+write SIZE2 (TRUNC|WRONLY). Read: SIZE2 bytes PRNG(2). Final read returns 0.
 #[rstest]
-fn test_files_truncate(
+#[tokio::test]
+async fn test_files_truncate(
     #[values(32, 8192, 131072, 0, 7, 8193)] size1: u32,
     #[values(32, 8192, 131072, 0, 7, 8193)] size2: u32,
     #[values(31, 16, 1)] chunk_size: u32,
@@ -454,28 +445,23 @@ fn test_files_truncate(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("avacado");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
 
     // write SIZE1
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+        )
+        .await,
+    );
     write_prng_file(
         &mut lfs,
         &mut caches,
@@ -483,23 +469,23 @@ fn test_files_truncate(
         size1,
         chunk_size,
         1,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // truncate + write SIZE2
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_TRUNC,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_TRUNC,
+        )
+        .await,
+    );
     write_prng_file(
         &mut lfs,
         &mut caches,
@@ -507,23 +493,23 @@ fn test_files_truncate(
         size2,
         chunk_size,
         2,
-    );
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    )
+    .await;
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     // read SIZE2
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), size2 as i32);
     verify_prng_file(
         &mut lfs,
@@ -532,16 +518,18 @@ fn test_files_truncate(
         size2,
         chunk_size,
         2,
-    );
+    )
+    .await;
     let mut buf = [0u8; 1024];
     let n = lfs_file_read(
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..chunk_size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -554,7 +542,8 @@ fn test_files_truncate(
 /// Mount-or-format, check existing file (size 0 or SIZE), write SIZE PRNG(1),
 /// close, read back, verify. Power-loss retries until success.
 #[rstest]
-fn test_files_reentrant_write(
+#[tokio::test]
+async fn test_files_reentrant_write(
     #[values(32, 0, 7, 2049)] size: u32,
     #[values(31, 16, 65)] chunk_size: u32,
     #[values(0, -1, 8)] inline_max: i32,
@@ -572,16 +561,8 @@ fn test_files_reentrant_write(
     let mut caches = LfsCaches::default();
 
     // Format and mount for initial snapshot
-    assert_ok(littlefs_rust_core::lfs_format(
-        &mut lfs,
-        &mut caches,
-        config_ptr,
-    ));
-    assert_ok(littlefs_rust_core::lfs_mount(
-        &mut lfs,
-        &mut caches,
-        config_ptr,
-    ));
+    assert_ok(littlefs_rust_core::lfs_format(&mut lfs, &mut caches, config_ptr).await);
+    assert_ok(littlefs_rust_core::lfs_mount(&mut lfs, &mut caches, config_ptr).await);
     assert_ok(littlefs_rust_core::lfs_unmount(&mut lfs));
     let snapshot = env.snapshot();
 
@@ -591,11 +572,11 @@ fn test_files_reentrant_write(
         &mut env,
         &snapshot,
         max_iter,
-        |lfs, caches, cfg| {
-            let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+        async |lfs, caches, cfg| {
+            let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
             if err != 0 {
-                let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg);
-                let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+                let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg).await;
+                let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -609,11 +590,12 @@ fn test_files_reentrant_write(
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_RDONLY,
-            );
+            )
+            .await;
             if open_err == 0 {
                 let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
                 assert!(sz == 0 || sz == size as i32, "size must be 0 or SIZE");
-                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -627,12 +609,13 @@ fn test_files_reentrant_write(
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_WRONLY | LFS_O_CREAT,
-            );
+            )
+            .await;
             if e != 0 {
                 return Err(e);
             }
-            write_prng_file_result(lfs, caches, file.as_mut_ptr(), size, chunk_size, 1)?;
-            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+            write_prng_file_result(lfs, caches, file.as_mut_ptr(), size, chunk_size, 1).await?;
+            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
             if e != 0 {
                 return Err(e);
             }
@@ -642,8 +625,8 @@ fn test_files_reentrant_write(
             }
             Ok(())
         },
-        |lfs, caches, cfg| {
-            let remount = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+        async |lfs, caches, cfg| {
+            let remount = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
             if remount != 0 {
                 return Ok(());
             }
@@ -655,16 +638,17 @@ fn test_files_reentrant_write(
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_RDONLY,
-            );
+            )
+            .await;
             if err != 0 {
                 let _ = littlefs_rust_core::lfs_unmount(lfs);
                 return Ok(());
             }
             let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
             if sz == size as i32 {
-                verify_prng_file(lfs, caches, file.as_mut_ptr(), size, chunk_size, 1);
+                verify_prng_file(lfs, caches, file.as_mut_ptr(), size, chunk_size, 1).await;
             }
-            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
             if e != 0 {
                 return Err(e);
             }
@@ -674,7 +658,8 @@ fn test_files_reentrant_write(
             }
             Ok(())
         },
-    );
+    )
+    .await;
     result.expect("reentrant write should eventually succeed");
 }
 
@@ -682,7 +667,8 @@ fn test_files_reentrant_write(
 /// Three modes: APPEND, TRUNC, plain write. SIZE/CHUNKSIZE/INLINE_MAX vary per mode.
 /// Power-loss after each sync. Stub: implement APPEND mode with SIZE=[32,0,7,2049].
 #[rstest]
-fn test_files_reentrant_write_sync(
+#[tokio::test]
+async fn test_files_reentrant_write_sync(
     #[values(32, 0, 7, 2049)] size: u32,
     #[values(31, 16, 65)] chunk_size: u32,
     #[values(0, -1, 8)] inline_max: i32,
@@ -699,16 +685,8 @@ fn test_files_reentrant_write_sync(
     let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
 
-    assert_ok(littlefs_rust_core::lfs_format(
-        &mut lfs,
-        &mut caches,
-        config_ptr,
-    ));
-    assert_ok(littlefs_rust_core::lfs_mount(
-        &mut lfs,
-        &mut caches,
-        config_ptr,
-    ));
+    assert_ok(littlefs_rust_core::lfs_format(&mut lfs, &mut caches, config_ptr).await);
+    assert_ok(littlefs_rust_core::lfs_mount(&mut lfs, &mut caches, config_ptr).await);
     assert_ok(littlefs_rust_core::lfs_unmount(&mut lfs));
     let snapshot = env.snapshot();
 
@@ -718,11 +696,11 @@ fn test_files_reentrant_write_sync(
         &mut env,
         &snapshot,
         max_iter,
-        |lfs, caches, cfg| {
-            let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+        async |lfs, caches, cfg| {
+            let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
             if err != 0 {
-                let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg);
-                let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+                let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg).await;
+                let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -736,7 +714,8 @@ fn test_files_reentrant_write_sync(
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_RDONLY,
-            );
+            )
+            .await;
             if open_err == 0 {
                 let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
                 assert!(sz <= size as i32);
@@ -750,7 +729,8 @@ fn test_files_reentrant_write_sync(
                         caches,
                         file.as_mut_ptr(),
                         &mut buf[..chunk],
-                    );
+                    )
+                    .await;
                     assert_eq!(n, chunk as i32);
                     for slot in buf[..chunk].iter() {
                         let expected = (common::test_prng(&mut prng) & 0xff) as u8;
@@ -758,7 +738,7 @@ fn test_files_reentrant_write_sync(
                     }
                     i += chunk as u32;
                 }
-                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -772,7 +752,8 @@ fn test_files_reentrant_write_sync(
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_WRONLY | LFS_O_CREAT | LFS_O_APPEND,
-            );
+            )
+            .await;
             if e != 0 {
                 return Err(e);
             }
@@ -792,18 +773,19 @@ fn test_files_reentrant_write_sync(
                     caches,
                     file.as_mut_ptr(),
                     &buf[..chunk as usize],
-                );
+                )
+                .await;
                 if n < 0 {
                     return Err(n);
                 }
                 assert_eq!(n, chunk as i32);
-                let e = littlefs_rust_core::lfs_file_sync(lfs, caches, file.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_sync(lfs, caches, file.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
                 i += chunk;
             }
-            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
             if e != 0 {
                 return Err(e);
             }
@@ -813,8 +795,8 @@ fn test_files_reentrant_write_sync(
             }
             Ok(())
         },
-        |lfs, caches, cfg| {
-            if littlefs_rust_core::lfs_mount(lfs, caches, cfg) != 0 {
+        async |lfs, caches, cfg| {
+            if littlefs_rust_core::lfs_mount(lfs, caches, cfg).await != 0 {
                 return Ok(());
             }
             let path = path_bytes("avacado");
@@ -825,16 +807,18 @@ fn test_files_reentrant_write_sync(
                 file.as_mut_ptr(),
                 path.as_ptr(),
                 LFS_O_RDONLY,
-            ) != 0
+            )
+            .await
+                != 0
             {
                 let _ = littlefs_rust_core::lfs_unmount(lfs);
                 return Ok(());
             }
             let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
             if sz == size as i32 {
-                verify_prng_file(lfs, caches, file.as_mut_ptr(), size, chunk_size, 1);
+                verify_prng_file(lfs, caches, file.as_mut_ptr(), size, chunk_size, 1).await;
             }
-            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+            let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
             if e != 0 {
                 return Err(e);
             }
@@ -844,7 +828,8 @@ fn test_files_reentrant_write_sync(
             }
             Ok(())
         },
-    );
+    )
+    .await;
     result.expect("reentrant write sync should eventually succeed");
 }
 
@@ -852,55 +837,53 @@ fn test_files_reentrant_write_sync(
 /// defines.N = 300
 ///
 /// Create 300 files of 7 bytes ("Hi %03d"), read each back immediately, verify.
-#[test]
-fn test_files_many() {
+#[tokio::test]
+async fn test_files_many() {
     const N: usize = 300;
     let mut env = default_config(BLOCK_COUNT_MANY);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     for i in 0..N {
         let path = path_bytes(&format!("file_{:03}", i));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+            )
+            .await,
+        );
         let content = format!("Hi {:03}\0", i);
         let bytes = content.as_bytes();
         assert_eq!(bytes.len(), 7);
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), bytes);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), bytes).await;
         assert_eq!(n, bytes.len() as i32);
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
         let mut rfile = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            rfile.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_RDONLY,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                rfile.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_RDONLY,
+            )
+            .await,
+        );
         let mut buf = [0u8; 32];
-        let n = lfs_file_read(&mut lfs, &mut caches, rfile.as_mut_ptr(), &mut buf[..7]);
+        let n = lfs_file_read(&mut lfs, &mut caches, rfile.as_mut_ptr(), &mut buf[..7]).await;
         assert_eq!(n, 7);
         assert_eq!(&buf[..7], bytes);
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, rfile.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, rfile.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(&mut lfs));
 }
@@ -909,61 +892,55 @@ fn test_files_many() {
 /// defines.N = 300
 ///
 /// Create 300 files, unmount/remount after each. Verify on final mount.
-#[test]
-fn test_files_many_power_cycle() {
+#[tokio::test]
+async fn test_files_many_power_cycle() {
     const N: usize = 300;
     let mut env = default_config(BLOCK_COUNT_MANY);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     for i in 0..N {
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
         let path = path_bytes(&format!("file_{:03}", i));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+            )
+            .await,
+        );
         let content = format!("Hi {:03}\0", i);
         let bytes = content.as_bytes();
         assert_eq!(bytes.len(), 7);
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), bytes);
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), bytes).await;
         assert_eq!(n, bytes.len() as i32);
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         assert_ok(lfs_unmount(&mut lfs));
 
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
         let mut rfile = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            rfile.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_RDONLY,
-        ));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                rfile.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_RDONLY,
+            )
+            .await,
+        );
         let mut buf = [0u8; 32];
-        let n = lfs_file_read(&mut lfs, &mut caches, rfile.as_mut_ptr(), &mut buf[..7]);
+        let n = lfs_file_read(&mut lfs, &mut caches, rfile.as_mut_ptr(), &mut buf[..7]).await;
         assert_eq!(n, 7);
         assert_eq!(&buf[..7], bytes);
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, rfile.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, rfile.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(&mut lfs));
 }
@@ -973,9 +950,9 @@ fn test_files_many_power_cycle() {
 ///
 /// Reentrant creation of 300 files with power-loss simulation.
 /// Can take 30+ seconds due to iteration over power-loss points.
-#[test]
+#[tokio::test]
 #[cfg(feature = "slow_tests")]
-fn test_files_many_power_loss() {
+async fn test_files_many_power_loss() {
     const N: usize = 300;
     let mut env = powerloss_config(BLOCK_COUNT_MANY);
     init_powerloss_context(&mut env);
@@ -984,16 +961,8 @@ fn test_files_many_power_loss() {
     let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
 
-    assert_ok(littlefs_rust_core::lfs_format(
-        &mut lfs,
-        &mut caches,
-        config_ptr,
-    ));
-    assert_ok(littlefs_rust_core::lfs_mount(
-        &mut lfs,
-        &mut caches,
-        config_ptr,
-    ));
+    assert_ok(littlefs_rust_core::lfs_format(&mut lfs, &mut caches, config_ptr).await);
+    assert_ok(littlefs_rust_core::lfs_mount(&mut lfs, &mut caches, config_ptr).await);
     assert_ok(littlefs_rust_core::lfs_unmount(&mut lfs));
     let snapshot = env.snapshot();
 
@@ -1003,11 +972,11 @@ fn test_files_many_power_loss() {
         &mut env,
         &snapshot,
         max_iter,
-        |lfs, caches, cfg| {
-            let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+        async |lfs, caches, cfg| {
+            let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
             if err != 0 {
-                let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg);
-                let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+                let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg).await;
+                let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -1021,7 +990,8 @@ fn test_files_many_power_loss() {
                     file.as_mut_ptr(),
                     path.as_ptr(),
                     LFS_O_WRONLY | LFS_O_CREAT,
-                );
+                )
+                .await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -1031,13 +1001,14 @@ fn test_files_many_power_loss() {
                 let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
                 if sz != bytes.len() as i32 {
                     let n =
-                        littlefs_rust_core::lfs_file_write(lfs, caches, file.as_mut_ptr(), bytes);
+                        littlefs_rust_core::lfs_file_write(lfs, caches, file.as_mut_ptr(), bytes)
+                            .await;
                     if n < 0 {
                         return Err(n);
                     }
                     assert_eq!(n, bytes.len() as i32);
                 }
-                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -1049,7 +1020,8 @@ fn test_files_many_power_loss() {
                     rfile.as_mut_ptr(),
                     path.as_ptr(),
                     LFS_O_RDONLY,
-                );
+                )
+                .await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -1059,10 +1031,11 @@ fn test_files_many_power_loss() {
                     caches,
                     rfile.as_mut_ptr(),
                     &mut buf[..7],
-                );
+                )
+                .await;
                 assert_eq!(n, 7);
                 assert_eq!(&buf[..7], bytes);
-                let e = littlefs_rust_core::lfs_file_close(lfs, caches, rfile.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, rfile.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -1073,206 +1046,168 @@ fn test_files_many_power_loss() {
             }
             Ok(())
         },
-        |_, _, _| Ok(()),
-    );
+        async |_, _, _| Ok(()),
+    )
+    .await;
     result.expect("many_power_loss should eventually succeed");
 }
 
 // ── Rust-specific extras ────────────────────
 // Bug reproducers, debug helpers, unit tests. Not in upstream.
 
-#[test]
-fn test_files_same_session() {
+#[tokio::test]
+async fn test_files_same_session() {
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(littlefs_rust_core::lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(
+        littlefs_rust_core::lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig)
+            .await,
+    );
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("hello");
     let data = b"Hello World!\0";
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        0x0100 | 2,
-    ));
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            0x0100 | 2,
+        )
+        .await,
+    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data).await;
     assert_eq!(n, data.len() as i32);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     let mut file2 = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file2.as_mut_ptr(),
-        path.as_ptr(),
-        1,
-    ));
+    assert_ok(lfs_file_open(&mut lfs, &mut caches, file2.as_mut_ptr(), path.as_ptr(), 1).await);
     assert_eq!(lfs_file_size(&mut lfs, file2.as_mut_ptr()), 13);
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(&mut lfs, &mut caches, file2.as_mut_ptr(), &mut buf[..32]);
+    let n = lfs_file_read(&mut lfs, &mut caches, file2.as_mut_ptr(), &mut buf[..32]).await;
     assert_eq!(n, 13);
     assert_eq!(&buf[..13], b"Hello World!\0");
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file2.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file2.as_mut_ptr()).await);
 }
 
-#[test]
-fn test_files_simple_read() {
+#[tokio::test]
+async fn test_files_simple_read() {
     let mut env = default_config(128);
-    fs_with_hello(&mut env).expect("fs_with_hello");
+    fs_with_hello(&mut env).await.expect("fs_with_hello");
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("hello");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        1,
-    ));
+    assert_ok(lfs_file_open(&mut lfs, &mut caches, file.as_mut_ptr(), path.as_ptr(), 1).await);
 
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), 13);
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 0);
 
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf).await;
     assert_eq!(n, 13);
     assert_eq!(&buf[..13], b"Hello World!\0");
 
-    let n2 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
+    let n2 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf).await;
     assert_eq!(n2, 0);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
-#[test]
-fn test_files_seek_tell() {
+#[tokio::test]
+async fn test_files_seek_tell() {
     let mut env = default_config(128);
-    fs_with_hello(&mut env).expect("fs_with_hello");
+    fs_with_hello(&mut env).await.expect("fs_with_hello");
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("hello");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        1,
-    ));
+    assert_ok(lfs_file_open(&mut lfs, &mut caches, file.as_mut_ptr(), path.as_ptr(), 1).await);
 
     let mut buf = [0u8; 4];
-    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf).await;
     assert_eq!(n, 4);
     assert_eq!(&buf[..4], b"Hell");
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 4);
 
-    assert_ok(lfs_file_rewind(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_rewind(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 0);
 
-    let n2 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
+    let n2 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf).await;
     assert_eq!(n2, 4);
     assert_eq!(&buf[..4], b"Hell");
 
-    let pos = lfs_file_seek(&mut lfs, &mut caches, file.as_mut_ptr(), 6, 0);
+    let pos = lfs_file_seek(&mut lfs, &mut caches, file.as_mut_ptr(), 6, 0).await;
     assert_eq!(pos, 6);
-    let n3 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
+    let n3 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf).await;
     assert_eq!(n3, 4);
     assert_eq!(&buf[..4], b"Worl");
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
-#[test]
-fn test_files_truncate_api() {
+#[tokio::test]
+async fn test_files_truncate_api() {
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("x");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
+        )
+        .await,
+    );
     let data = b"hello world";
-    let _ = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
-    assert_ok(lfs_file_truncate(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        5,
-    ));
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    let _ = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data).await;
+    assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), 5).await);
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     assert_ok(lfs_unmount(&mut lfs));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), 5);
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf).await;
     assert_eq!(n, 5);
     assert_eq!(&buf[..5], b"hello");
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }

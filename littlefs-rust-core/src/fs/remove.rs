@@ -101,12 +101,12 @@ use crate::util::lfs_pair_fromle32;
 ///
 /// #ifndef LFS_READONLY
 /// ```
-pub fn lfs_remove_<S: Storage>(
+pub async fn lfs_remove_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
 ) -> i32 {
-    let err = lfs_fs_forceconsistency(lfs, caches);
+    let err = lfs_fs_forceconsistency(lfs, caches).await;
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
@@ -124,7 +124,7 @@ pub fn lfs_remove_<S: Storage>(
         };
 
         let mut path_ptr = path;
-        let tag = lfs_dir_find(lfs, caches, &mut cwd, &mut path_ptr, core::ptr::null_mut());
+        let tag = lfs_dir_find(lfs, caches, &mut cwd, &mut path_ptr, core::ptr::null_mut()).await;
         if tag < 0 || lfs_tag_id(tag as u32) == 0x3ff {
             return if tag < 0 { tag } else { LFS_ERR_INVAL };
         }
@@ -145,13 +145,14 @@ pub fn lfs_remove_<S: Storage>(
                 lfs_mktag(0x700, 0x3ff, 0),
                 lfs_mktag(LFS_TYPE_STRUCT, lfs_tag_id(tag as u32) as u32, 8),
                 pair.as_mut_ptr() as *mut core::ffi::c_void,
-            );
+            )
+            .await;
             if res < 0 {
                 return res;
             }
             lfs_pair_fromle32(&mut pair);
 
-            let err = lfs_dir_fetch(lfs, caches, &mut dir.m, &pair);
+            let err = lfs_dir_fetch(lfs, caches, &mut dir.m, &pair).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -174,7 +175,7 @@ pub fn lfs_remove_<S: Storage>(
             tag: lfs_mktag(LFS_TYPE_DELETE, lfs_tag_id(tag as u32) as u32, 0),
             buffer: core::ptr::null(),
         }];
-        let err = lfs_dir_commit(lfs, caches, &mut cwd, attrs.as_ptr() as *const _, 1);
+        let err = lfs_dir_commit(lfs, caches, &mut cwd, attrs.as_ptr() as *const _, 1).await;
         lfs.mlist = dir.next;
         if err != 0 {
             return crate::lfs_pass_err!(err);
@@ -188,12 +189,12 @@ pub fn lfs_remove_<S: Storage>(
                 return crate::lfs_pass_err!(err);
             }
 
-            let err = lfs_fs_pred(lfs, caches, &dir.m.pair, &mut cwd);
+            let err = lfs_fs_pred(lfs, caches, &dir.m.pair, &mut cwd).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
 
-            lfs_dir_drop(lfs, caches, &mut cwd, &dir.m)
+            lfs_dir_drop(lfs, caches, &mut cwd, &dir.m).await
         } else {
             0
         }

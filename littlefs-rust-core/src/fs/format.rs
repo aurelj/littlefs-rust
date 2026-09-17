@@ -92,7 +92,7 @@ use crate::util::lfs_min;
 ///     lfs_size_t period;
 /// };
 /// ```
-pub fn lfs_format_<S: Storage>(
+pub async fn lfs_format_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
@@ -127,7 +127,7 @@ pub fn lfs_format_<S: Storage>(
             split: false,
             tail: [0, 0],
         };
-        err = lfs_dir_alloc(lfs, caches, &mut root);
+        err = lfs_dir_alloc(lfs, caches, &mut root).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -169,7 +169,8 @@ pub fn lfs_format_<S: Storage>(
             &mut root,
             attrs.as_ptr() as *const core::ffi::c_void,
             3,
-        );
+        )
+        .await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -177,7 +178,7 @@ pub fn lfs_format_<S: Storage>(
 
         // Flush pcache so the second commit can read the first block from disk.
         // Otherwise the second compact reads from a block that was never written.
-        err = lfs_bd_sync(lfs, &mut caches.pcache, &mut caches.rcache, false);
+        err = lfs_bd_sync(lfs, &mut caches.pcache, &mut caches.rcache, false).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -185,21 +186,21 @@ pub fn lfs_format_<S: Storage>(
 
         // force compaction to prevent accidentally mounting any older version
         root.erased = false;
-        err = lfs_dir_commit(lfs, caches, &mut root, core::ptr::null(), 0);
+        err = lfs_dir_commit(lfs, caches, &mut root, core::ptr::null(), 0).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
         }
 
         // sanity check that fetch works
-        err = lfs_dir_fetch(lfs, caches, &mut root, &root.pair);
+        err = lfs_dir_fetch(lfs, caches, &mut root, &root.pair).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
         }
 
         // flush pcache so raw block reads (e.g. test_superblocks_magic) see data
-        err = lfs_bd_sync(lfs, &mut caches.pcache, &mut caches.rcache, false);
+        err = lfs_bd_sync(lfs, &mut caches.pcache, &mut caches.rcache, false).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -216,7 +217,7 @@ pub fn lfs_format_<S: Storage>(
 /// # Safety
 /// Caller must ensure `lfs` points to valid (e.g. zeroed) `Lfs`, `cfg` to valid `LfsConfig`,
 /// and `out` to valid `TraverseTestOut` for the duration of the call.
-pub unsafe fn test_traverse_format_attrs<S: Storage>(
+pub async unsafe fn test_traverse_format_attrs<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
@@ -256,7 +257,7 @@ pub unsafe fn test_traverse_format_attrs<S: Storage>(
             split: false,
             tail: [0, 0],
         };
-        err = lfs_dir_alloc(lfs, caches, &mut root);
+        err = lfs_dir_alloc(lfs, caches, &mut root).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -305,8 +306,9 @@ pub unsafe fn test_traverse_format_attrs<S: Storage>(
             0,
             0,
             0,
-            &mut |lfs, caches, tag, buffer| lfs_dir_traverse_test_cb(lfs, caches, out, tag, buffer),
-        );
+            &mut crate::dir::traverse::TraverseTestCb { out },
+        )
+        .await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -323,7 +325,7 @@ pub unsafe fn test_traverse_format_attrs<S: Storage>(
 ///
 /// # Safety
 /// Same as `test_traverse_format_attrs`.
-pub unsafe fn test_traverse_filter_gets_superblock_after_push<S: Storage>(
+pub async unsafe fn test_traverse_filter_gets_superblock_after_push<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
@@ -365,7 +367,7 @@ pub unsafe fn test_traverse_filter_gets_superblock_after_push<S: Storage>(
             split: false,
             tail: [0, 0],
         };
-        err = lfs_dir_alloc(lfs, caches, &mut root);
+        err = lfs_dir_alloc(lfs, caches, &mut root).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -414,8 +416,9 @@ pub unsafe fn test_traverse_filter_gets_superblock_after_push<S: Storage>(
             0,
             1,
             0,
-            &mut |lfs, caches, tag, buffer| lfs_dir_traverse_test_cb(lfs, caches, out, tag, buffer),
-        );
+            &mut crate::dir::traverse::TraverseTestCb { out },
+        )
+        .await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -432,7 +435,7 @@ pub unsafe fn test_traverse_filter_gets_superblock_after_push<S: Storage>(
 /// # Safety
 /// Caller must ensure `lfs` points to valid (e.g. zeroed) `Lfs` and `cfg` to valid
 /// `LfsConfig` for the duration of the call.
-pub unsafe fn test_format_minimal_superblock<S: Storage>(
+pub async unsafe fn test_format_minimal_superblock<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
@@ -476,7 +479,7 @@ pub unsafe fn test_format_minimal_superblock<S: Storage>(
             split: false,
             tail: [0, 0],
         };
-        err = lfs_dir_alloc(lfs, caches, &mut root);
+        err = lfs_dir_alloc(lfs, caches, &mut root).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -485,7 +488,7 @@ pub unsafe fn test_format_minimal_superblock<S: Storage>(
         // Write to block 1 (compact-style), skip traverse. pair is [1,0] or [0,1]
         // depending on alloc order; use pair[1] which receives the first compact write.
         let block = root.pair[1];
-        err = lfs_bd_erase(lfs, block);
+        err = lfs_bd_erase(lfs, block).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -503,7 +506,7 @@ pub unsafe fn test_format_minimal_superblock<S: Storage>(
 
         let rev = 1u32;
         let rev_le = rev.to_le_bytes();
-        err = lfs_dir_commitprog(lfs, caches, &mut commit, &rev_le);
+        err = lfs_dir_commitprog(lfs, caches, &mut commit, &rev_le).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -517,7 +520,8 @@ pub unsafe fn test_format_minimal_superblock<S: Storage>(
             &mut commit,
             lfs_mktag(LFS_TYPE_CREATE, 0, 0),
             core::ptr::null(),
-        );
+        )
+        .await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
@@ -528,19 +532,20 @@ pub unsafe fn test_format_minimal_superblock<S: Storage>(
             &mut commit,
             lfs_mktag(LFS_TYPE_SUPERBLOCK, 0, 8),
             magic.as_ptr() as *const core::ffi::c_void,
-        );
+        )
+        .await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
         }
 
-        err = lfs_dir_commitcrc(lfs, caches, &mut commit);
+        err = lfs_dir_commitcrc(lfs, caches, &mut commit).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);
         }
 
-        err = lfs_bd_sync(lfs, &mut caches.pcache, &mut caches.rcache, false);
+        err = lfs_bd_sync(lfs, &mut caches.pcache, &mut caches.rcache, false).await;
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);

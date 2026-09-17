@@ -33,7 +33,7 @@ pub struct ReadDir<'a, S: Storage> {
 }
 
 impl<'a, S: Storage> ReadDir<'a, S> {
-    pub(crate) fn open(fs: &'a Filesystem<S>, path: &str) -> Result<Self, Error> {
+    pub(crate) async fn open(fs: &'a Filesystem<S>, path: &str) -> Result<Self, Error> {
         let mut alloc = Box::new(DirAllocation::new());
         let path_bytes = null_terminate(path);
         {
@@ -43,7 +43,8 @@ impl<'a, S: Storage> ReadDir<'a, S> {
                 &mut inner.caches,
                 alloc.dir.as_mut_ptr(),
                 path_bytes.as_ptr(),
-            );
+            )
+            .await;
             from_lfs_result(rc)?;
         }
         Ok(ReadDir {
@@ -53,21 +54,7 @@ impl<'a, S: Storage> ReadDir<'a, S> {
         })
     }
 
-    /// Close the directory handle. Consumes `self`.
-    ///
-    /// Dropping a [`ReadDir`] also closes it, but errors are silently ignored.
-    pub fn close(mut self) -> Result<(), Error> {
-        self.closed = true;
-        let inner = &mut *self.fs.inner.borrow_mut();
-        let rc = littlefs_rust_core::lfs_dir_close(&mut inner.lfs, self.alloc.dir.as_mut_ptr());
-        from_lfs_result(rc)
-    }
-}
-
-impl<S: Storage> Iterator for ReadDir<'_, S> {
-    type Item = Result<DirEntry, Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    pub async fn next(&mut self) -> Option<Result<DirEntry, Error>> {
         loop {
             let mut info = MaybeUninit::<LfsInfo>::zeroed();
             let rc = {
@@ -78,6 +65,7 @@ impl<S: Storage> Iterator for ReadDir<'_, S> {
                     self.alloc.dir.as_mut_ptr(),
                     info.as_mut_ptr(),
                 )
+                .await
             };
 
             return match rc {
@@ -92,6 +80,27 @@ impl<S: Storage> Iterator for ReadDir<'_, S> {
                 }
             };
         }
+    }
+
+    pub async fn collect(&mut self) -> Result<Vec<DirEntry>, Error> {
+        let mut entries = Vec::new();
+        while let Some(result) = self.next().await {
+            match result {
+                Ok(entry) => entries.push(entry),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(entries)
+    }
+
+    /// Close the directory handle. Consumes `self`.
+    ///
+    /// Dropping a [`ReadDir`] also closes it, but errors are silently ignored.
+    pub fn close(mut self) -> Result<(), Error> {
+        self.closed = true;
+        let inner = &mut *self.fs.inner.borrow_mut();
+        let rc = littlefs_rust_core::lfs_dir_close(&mut inner.lfs, self.alloc.dir.as_mut_ptr());
+        from_lfs_result(rc)
     }
 }
 

@@ -69,7 +69,7 @@ use crate::types::{lfs_block_t, lfs_size_t};
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_fs_grow_<S: Storage>(
+pub async fn lfs_fs_grow_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     block_count: lfs_size_t,
@@ -93,7 +93,8 @@ pub fn lfs_fs_grow_<S: Storage>(
                     }
                 },
                 true,
-            );
+            )
+            .await;
             if err != 0 {
                 return err;
             }
@@ -104,7 +105,7 @@ pub fn lfs_fs_grow_<S: Storage>(
         // fetch the root
         let mut root = core::mem::MaybeUninit::<LfsMdir>::zeroed();
         let root_pair = lfs.root;
-        let err = lfs_dir_fetch(lfs, caches, root.as_mut_ptr(), &root_pair);
+        let err = lfs_dir_fetch(lfs, caches, root.as_mut_ptr(), &root_pair).await;
         if err != 0 {
             return err;
         }
@@ -122,7 +123,8 @@ pub fn lfs_fs_grow_<S: Storage>(
                 core::mem::size_of::<LfsSuperblock>() as u32,
             ),
             superblock.as_mut_ptr() as *mut core::ffi::c_void,
-        );
+        )
+        .await;
         if tag < 0 {
             return tag;
         }
@@ -144,7 +146,8 @@ pub fn lfs_fs_grow_<S: Storage>(
             root.as_mut_ptr(),
             attrs.as_ptr() as *const core::ffi::c_void,
             1,
-        );
+        )
+        .await;
         if err != 0 {
             return err;
         }

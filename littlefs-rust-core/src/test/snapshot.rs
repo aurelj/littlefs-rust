@@ -15,13 +15,13 @@ pub struct SuperblockSnapshot {
 
 impl SuperblockSnapshot {
     /// Read blocks 0 and 1 from config. root_pair from mounted Lfs.
-    pub fn capture<S: Storage>(lfs: &mut Lfs<S>, root_pair: [u32; 2]) -> Result<Self, Error> {
+    pub async fn capture<S: Storage>(lfs: &mut Lfs<S>, root_pair: [u32; 2]) -> Result<Self, Error> {
         let block_size = unsafe { (&*lfs.cfg).block_size } as usize;
         let mut block0 = alloc::vec![0u8; block_size];
         let mut block1 = alloc::vec![0u8; block_size];
 
-        lfs.storage.read(0, 0, &mut block0)?;
-        lfs.storage.read(1, 0, &mut block1)?;
+        lfs.storage.read(0, 0, &mut block0).await?;
+        lfs.storage.read(1, 0, &mut block1).await?;
 
         Ok(Self {
             block0,

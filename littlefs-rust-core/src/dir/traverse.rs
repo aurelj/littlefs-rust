@@ -1,5 +1,10 @@
 //! Directory traverse. Per lfs.c lfs_dir_traverse, lfs_dir_getslice, lfs_dir_get, lfs_dir_getread.
 
+use core::future::Future;
+use core::pin::Pin;
+
+use alloc::boxed::Box;
+
 use crate::bd::LfsCache;
 use crate::bd::Storage;
 use crate::dir::LfsMdir;
@@ -76,7 +81,7 @@ use crate::types::{lfs_block_t, lfs_off_t, lfs_size_t, lfs_stag_t, lfs_tag_t};
 ///     return LFS_ERR_NOENT;
 /// }
 /// ```
-pub fn lfs_dir_getslice<S: Storage>(
+pub async fn lfs_dir_getslice<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
@@ -134,7 +139,8 @@ pub fn lfs_dir_getslice<S: Storage>(
                 dir_ref.pair[0],
                 off,
                 &mut ntag_buf,
-            );
+            )
+            .await;
             if err != 0 {
                 return err as lfs_stag_t;
             }
@@ -168,7 +174,8 @@ pub fn lfs_dir_getslice<S: Storage>(
                     dir_ref.pair[0],
                     off + 4 + goff,
                     buf,
-                );
+                )
+                .await;
                 if err != 0 {
                     return err as lfs_stag_t;
                 }
@@ -197,7 +204,7 @@ pub fn lfs_dir_getslice<S: Storage>(
 ///             0, buffer, lfs_tag_size(gtag));
 /// }
 /// ```
-pub fn lfs_dir_get<S: Storage>(
+pub async fn lfs_dir_get<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
@@ -215,6 +222,7 @@ pub fn lfs_dir_get<S: Storage>(
         buffer,
         crate::tag::lfs_tag_size(gtag),
     )
+    .await
 }
 
 /// Per lfs.c lfs_dir_getread (lines 793-850)
@@ -240,7 +248,7 @@ pub fn lfs_dir_get<S: Storage>(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_getread<S: Storage>(
+pub async fn lfs_dir_getread<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
@@ -327,13 +335,36 @@ pub fn lfs_dir_getread<S: Storage>(
                 rcache_ref.off,
                 rcache_ref.buffer as *mut core::ffi::c_void,
                 rcache_ref.size,
-            );
+            )
+            .await;
             if res < 0 {
                 return res as i32;
             }
         }
     }
     0
+}
+
+struct TraverseFilterCb<'a> {
+    filtertag: &'a mut u32,
+}
+
+impl<'b, S: Storage> TraverseCb<S> for TraverseFilterCb<'b> {
+    fn call<'a>(
+        &'a mut self,
+        lfs: &'a mut crate::fs::Lfs<S>,
+        caches: &'a mut crate::fs::LfsCaches,
+        tag: lfs_tag_t,
+        buffer: *const core::ffi::c_void,
+    ) -> Pin<Box<dyn Future<Output = i32> + 'a>> {
+        Box::pin(lfs_dir_traverse_filter(
+            lfs,
+            caches,
+            self.filtertag,
+            tag,
+            buffer,
+        ))
+    }
 }
 
 /// Per lfs.c lfs_dir_traverse_filter (lines 852-910)
@@ -400,7 +431,7 @@ pub fn lfs_dir_getread<S: Storage>(
 ///     struct lfs_diskoff disk;
 /// };
 /// ```
-fn lfs_dir_traverse_filter<S: Storage>(
+async fn lfs_dir_traverse_filter<S: Storage>(
     lfs: &crate::fs::Lfs<S>,
     _caches: &mut crate::fs::LfsCaches,
     filtertag: &mut lfs_tag_t,
@@ -688,28 +719,40 @@ struct LfsDirTraverseStack {
 /// #endif
 ///
 /// ```
+
+/// A dir-traverse callback. Boxes its returned future so callers can capture
+/// arbitrary state (e.g. a search key) without requiring `lfs_dir_traverse`
+/// to be generic over it; a plain `FnMut(...) -> Pin<Box<dyn Future>>` closure
+/// can't satisfy the higher-ranked bound this needs once it captures anything
+/// with a lifetime shorter than "for all possible calls", since `&'a mut self`
+/// here ties the per-call lifetime to the callback's own borrow instead.
+pub(crate) trait TraverseCb<S: Storage> {
+    fn call<'a>(
+        &'a mut self,
+        lfs: &'a mut crate::fs::Lfs<S>,
+        caches: &'a mut crate::fs::LfsCaches,
+        tag: lfs_tag_t,
+        buffer: *const core::ffi::c_void,
+    ) -> Pin<Box<dyn Future<Output = i32> + 'a>>;
+}
+
 /// Helper: single place where the traverse callback is invoked.
 /// C: `res = cb(data, tag + LFS_MKTAG(0, diff, 0), buffer);`
 #[inline(always)]
-fn dispatch_tag<S: Storage>(
+async fn dispatch_tag<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
-    cb: &mut dyn FnMut(
-        &mut crate::fs::Lfs<S>,
-        &mut crate::fs::LfsCaches,
-        lfs_tag_t,
-        *const core::ffi::c_void,
-    ) -> i32,
+    cb: &mut dyn TraverseCb<S>,
     tag: lfs_tag_t,
     buffer: *const core::ffi::c_void,
     diff: i16,
 ) -> i32 {
     use crate::tag::lfs_mktag;
     let out_tag = tag.wrapping_add(lfs_mktag(0, diff as u32, 0));
-    cb(lfs, caches, out_tag, buffer)
+    cb.call(lfs, caches, out_tag, buffer).await
 }
 
-pub fn lfs_dir_traverse<S: Storage>(
+pub async fn lfs_dir_traverse<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
@@ -722,12 +765,7 @@ pub fn lfs_dir_traverse<S: Storage>(
     begin: u16,
     end: u16,
     diff: i16,
-    cb: &mut dyn FnMut(
-        &mut crate::fs::Lfs<S>,
-        &mut crate::fs::LfsCaches,
-        lfs_tag_t,
-        *const core::ffi::c_void,
-    ) -> i32,
+    cb: &mut dyn TraverseCb<S>,
 ) -> i32 {
     use crate::bd::bd::lfs_bd_read;
     use crate::lfs_type::lfs_type::LFS_FROM_NOOP;
@@ -806,7 +844,8 @@ pub fn lfs_dir_traverse<S: Storage>(
                             dir_ref.pair[0],
                             off,
                             &mut tag_raw,
-                        );
+                        )
+                        .await;
                         if err != 0 {
                             return crate::lfs_pass_err!(err);
                         }
@@ -982,15 +1021,14 @@ pub fn lfs_dir_traverse<S: Storage>(
                                 dispatch_tag(
                                     lfs,
                                     caches,
-                                    &mut |lfs, caches, tag, buffer| {
-                                        lfs_dir_traverse_filter(lfs, caches, filtertag, tag, buffer)
-                                    },
+                                    &mut TraverseFilterCb { filtertag },
                                     userattr_tag,
                                     a.buffer,
                                     diff,
                                 )
+                                .await
                             } else {
-                                dispatch_tag(lfs, caches, cb, userattr_tag, a.buffer, diff)
+                                dispatch_tag(lfs, caches, cb, userattr_tag, a.buffer, diff).await
                             };
                             if res < 0 {
                                 return res;
@@ -1025,15 +1063,14 @@ pub fn lfs_dir_traverse<S: Storage>(
                             dispatch_tag(
                                 lfs,
                                 caches,
-                                &mut |lfs, caches, tag, buffer| {
-                                    lfs_dir_traverse_filter(lfs, caches, filtertag, tag, buffer)
-                                },
+                                &mut TraverseFilterCb { filtertag },
                                 tag,
                                 actual_buffer,
                                 diff,
                             )
+                            .await
                         } else {
-                            dispatch_tag(lfs, caches, cb, tag, actual_buffer, diff)
+                            dispatch_tag(lfs, caches, cb, tag, actual_buffer, diff).await
                         };
                         if res < 0 {
                             return res;
@@ -1105,6 +1142,22 @@ pub fn lfs_dir_traverse<S: Storage>(
 
 // --- Test helpers for attr iteration validation ---
 
+pub(crate) struct TraverseTestCb<'a> {
+    pub out: &'a mut TraverseTestOut,
+}
+
+impl<'b, S: Storage> TraverseCb<S> for TraverseTestCb<'b> {
+    fn call<'a>(
+        &'a mut self,
+        lfs: &'a mut crate::fs::Lfs<S>,
+        caches: &'a mut crate::fs::LfsCaches,
+        tag: lfs_tag_t,
+        buffer: *const core::ffi::c_void,
+    ) -> Pin<Box<dyn Future<Output = i32> + 'a>> {
+        Box::pin(unsafe { lfs_dir_traverse_test_cb(lfs, caches, self.out, tag, buffer) })
+    }
+}
+
 /// Output collected by lfs_dir_traverse_test_cb. Used to verify traverse passes correct buffers.
 #[derive(Default)]
 pub struct TraverseTestOut {
@@ -1114,7 +1167,7 @@ pub struct TraverseTestOut {
     pub first_bytes: [u8; 8],
 }
 
-pub(crate) unsafe fn lfs_dir_traverse_test_cb<S: Storage>(
+pub(crate) async unsafe fn lfs_dir_traverse_test_cb<S: Storage>(
     lfs: &crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     out: &mut TraverseTestOut,

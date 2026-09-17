@@ -1,5 +1,10 @@
 //! Directory fetch. Per lfs.c lfs_dir_fetch, lfs_dir_getgstate, lfs_dir_getinfo.
 
+use alloc::boxed::Box;
+use core::future::Future;
+use core::mem;
+use core::pin::Pin;
+
 use crate::bd::bd::{lfs_bd_crc, lfs_bd_read};
 use crate::bd::Storage;
 use crate::crc::lfs_crc;
@@ -22,7 +27,22 @@ use crate::tag::{
 };
 use crate::types::{lfs_block_t, lfs_stag_t, lfs_tag_t, LFS_BLOCK_NULL};
 use crate::util::{lfs_fromle32, lfs_min, lfs_pair_swap, lfs_scmp, lfs_tole32};
-use core::mem;
+
+/// A fetch-match callback. Boxes its returned future so callers can capture
+/// arbitrary state (e.g. a search key) without requiring `lfs_dir_fetchmatch`
+/// to be generic over it; a plain `FnMut(...) -> Pin<Box<dyn Future>>` closure
+/// can't satisfy the higher-ranked bound this needs once it captures anything
+/// with a lifetime shorter than "for all possible calls", since `&'a mut self`
+/// here ties the per-call lifetime to the callback's own borrow instead.
+pub(crate) trait FetchCb<S: Storage> {
+    fn call<'a>(
+        &'a mut self,
+        lfs: &'a mut crate::fs::Lfs<S>,
+        caches: &'a mut crate::fs::LfsCaches,
+        tag: lfs_tag_t,
+        off: &'a crate::tag::lfs_diskoff,
+    ) -> Pin<Box<dyn Future<Output = i32> + 'a>>;
+}
 
 /// Per lfs.c lfs_dir_fetchmatch (lines 1107-1386)
 ///
@@ -309,7 +329,7 @@ use core::mem;
 /// }
 ///
 /// ```
-pub fn lfs_dir_fetchmatch<S: Storage>(
+pub async fn lfs_dir_fetchmatch<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     _dir: *mut LfsMdir,
@@ -317,14 +337,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
     _fmask: lfs_tag_t,
     _ftag: lfs_tag_t,
     _id: *mut u16,
-    _cb: Option<
-        &dyn Fn(
-            &mut crate::fs::Lfs<S>,
-            &mut crate::fs::LfsCaches,
-            lfs_tag_t,
-            &crate::tag::lfs_diskoff,
-        ) -> i32,
-    >,
+    mut _cb: Option<&mut dyn FetchCb<S>>,
 ) -> lfs_stag_t {
     // Per lfs.c enum: LFS_CMP_EQ=0, LFS_CMP_LT=1, LFS_CMP_GT=2
     const LFS_CMP_EQ: i32 = 0;
@@ -350,7 +363,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
         for i in 0..2 {
             crate::lfs_trace!("fetchmatch: reading rev for pair[{}]={}", i, pair[i]);
             let mut rev_buf = [0u8; 4];
-            let err = lfs_bd_read(lfs, None, &mut caches.rcache, 4, pair[i], 0, &mut rev_buf);
+            let err = lfs_bd_read(lfs, None, &mut caches.rcache, 4, pair[i], 0, &mut rev_buf).await;
             revs[i] = u32::from_le_bytes(rev_buf);
             if err != 0 && err != LFS_ERR_CORRUPT {
                 return err as lfs_stag_t;
@@ -417,7 +430,8 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                     dir.pair[0],
                     off,
                     &mut tag_buf,
-                );
+                )
+                .await;
                 if err != 0 {
                     if err == LFS_ERR_CORRUPT {
                         break;
@@ -448,7 +462,8 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                         dir.pair[0],
                         off + 4,
                         &mut dcrc_buf,
-                    );
+                    )
+                    .await;
                     if err != 0 {
                         if err == LFS_ERR_CORRUPT {
                             break;
@@ -488,7 +503,8 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                     off + 4,
                     entry_size,
                     &mut crc_val,
-                );
+                )
+                .await;
                 if err != 0 {
                     if err == LFS_ERR_CORRUPT {
                         break;
@@ -530,7 +546,8 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                         dir.pair[0],
                         off + 4,
                         &mut tail_buf,
-                    );
+                    )
+                    .await;
                     if err != 0 {
                         if err == LFS_ERR_CORRUPT {
                             break;
@@ -549,7 +566,8 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                         dir.pair[0],
                         off + 4,
                         &mut fcrc_buf,
-                    );
+                    )
+                    .await;
                     if err != 0 {
                         if err == LFS_ERR_CORRUPT {
                             break;
@@ -566,12 +584,12 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                 }
 
                 if (_fmask & tag) == (_fmask & _ftag) {
-                    if let Some(cb) = _cb {
+                    if let Some(cb) = _cb.as_mut() {
                         let diskoff = crate::tag::lfs_diskoff {
                             block: dir.pair[0],
                             off: off + 4,
                         };
-                        let res = cb(lfs, caches, tag, &diskoff);
+                        let res = cb.call(lfs, caches, tag, &diskoff).await;
                         if res < 0 {
                             if res == LFS_ERR_CORRUPT {
                                 break;
@@ -612,7 +630,8 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                     dir.off,
                     fcrc.size,
                     &mut fcrc_,
-                );
+                )
+                .await;
                 if err != 0 && err != LFS_ERR_CORRUPT {
                     return err as lfs_stag_t;
                 }
@@ -687,7 +706,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
 ///             (lfs_tag_t)-1, (lfs_tag_t)-1, NULL, NULL, NULL);
 /// }
 /// ```
-pub fn lfs_dir_fetch<S: Storage>(
+pub async fn lfs_dir_fetch<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
@@ -702,7 +721,8 @@ pub fn lfs_dir_fetch<S: Storage>(
         0xffff_ffff,
         core::ptr::null_mut(),
         None,
-    );
+    )
+    .await;
     if res < 0 {
         res
     } else {
@@ -732,7 +752,7 @@ pub fn lfs_dir_fetch<S: Storage>(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_getgstate<S: Storage>(
+pub async fn lfs_dir_getgstate<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
@@ -754,7 +774,8 @@ pub fn lfs_dir_getgstate<S: Storage>(
                 core::mem::size_of::<LfsGstate>() as u32,
             ),
             &mut temp as *mut _ as *mut core::ffi::c_void,
-        );
+        )
+        .await;
         if res < 0 && res != crate::error::LFS_ERR_NOENT {
             return res;
         }
@@ -804,7 +825,7 @@ pub fn lfs_dir_getgstate<S: Storage>(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_dir_getinfo<S: Storage>(
+pub async fn lfs_dir_getinfo<S: Storage>(
     lfs: &mut crate::fs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *const LfsMdir,
@@ -835,7 +856,8 @@ pub fn lfs_dir_getinfo<S: Storage>(
             lfs_mktag(0x780, 0x3ff, 0),
             lfs_mktag(LFS_TYPE_NAME, id as u32, name_max + 1),
             info.name.as_mut_ptr() as *mut core::ffi::c_void,
-        );
+        )
+        .await;
         if tag < 0 {
             return tag;
         }
@@ -851,7 +873,8 @@ pub fn lfs_dir_getinfo<S: Storage>(
             lfs_mktag(0x700, 0x3ff, 0),
             lfs_mktag(LFS_TYPE_STRUCT, id as u32, mem::size_of::<LfsCtz>() as u32),
             &mut ctz as *mut _ as *mut core::ffi::c_void,
-        );
+        )
+        .await;
         if tag < 0 {
             return tag;
         }

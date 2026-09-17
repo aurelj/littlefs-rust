@@ -32,7 +32,7 @@ fn init_exhaustion_env(
 /// verify after each cycle, repeat until NOSPC. Returns number of completed cycles.
 ///
 /// C: test_exhaustion.toml — shared pattern across normal/superblocks/wear_leveling
-fn run_exhaustion<S: Storage>(
+async fn run_exhaustion<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
@@ -41,7 +41,7 @@ fn run_exhaustion<S: Storage>(
 ) -> u32 {
     let mut cycle: u32 = 0;
     'outer: loop {
-        assert_ok(lfs_mount(lfs, caches, config));
+        assert_ok(lfs_mount(lfs, caches, config).await);
 
         for i in 0..files {
             let path = path_bytes(&format!("{prefix}/test{i}"));
@@ -49,30 +49,33 @@ fn run_exhaustion<S: Storage>(
             let size = 1u32 << ((test_prng(&mut prng) % 10) + 2);
 
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                lfs,
-                caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                common::LFS_O_WRONLY | common::LFS_O_CREAT | common::LFS_O_TRUNC,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    lfs,
+                    caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    common::LFS_O_WRONLY | common::LFS_O_CREAT | common::LFS_O_TRUNC,
+                )
+                .await,
+            );
 
             for _ in 0..size {
                 let c = [b'a' + (test_prng(&mut prng) % 26) as u8];
-                let res = lfs_file_write(lfs, caches, file.as_mut_ptr(), &c);
+                let res = lfs_file_write(lfs, caches, file.as_mut_ptr(), &c).await;
                 assert!(
                     res == 1 || res == LFS_ERR_NOSPC,
                     "write returned {res} at cycle={cycle} file={i}"
                 );
                 if res == LFS_ERR_NOSPC {
-                    let err = lfs_file_close(lfs, caches, file.as_mut_ptr());
+                    let err = lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                     assert!(err == 0 || err == LFS_ERR_NOSPC);
                     assert_ok(lfs_unmount(lfs));
                     break 'outer;
                 }
             }
 
-            let err = lfs_file_close(lfs, caches, file.as_mut_ptr());
+            let err = lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
             assert!(
                 err == 0 || err == LFS_ERR_NOSPC,
                 "close returned {err} at cycle={cycle} file={i}"
@@ -89,23 +92,26 @@ fn run_exhaustion<S: Storage>(
             let size = 1u32 << ((test_prng(&mut prng) % 10) + 2);
 
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                lfs,
-                caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                common::LFS_O_RDONLY,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    lfs,
+                    caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    common::LFS_O_RDONLY,
+                )
+                .await,
+            );
 
             for _ in 0..size {
                 let expected = b'a' + (test_prng(&mut prng) % 26) as u8;
                 let mut r = [0u8];
-                let n = lfs_file_read(lfs, caches, file.as_mut_ptr(), &mut r);
+                let n = lfs_file_read(lfs, caches, file.as_mut_ptr(), &mut r).await;
                 assert_eq!(n, 1);
                 assert_eq!(r[0], expected);
             }
 
-            assert_ok(lfs_file_close(lfs, caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(lfs, caches, file.as_mut_ptr()).await);
         }
 
         assert_ok(lfs_unmount(lfs));
@@ -117,18 +123,18 @@ fn run_exhaustion<S: Storage>(
 /// After exhaustion: remount and stat all files to verify they're still readable.
 ///
 /// C: `exhausted:` label in test_exhaustion.toml
-fn verify_after_exhaustion<S: Storage>(
+async fn verify_after_exhaustion<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
     prefix: &str,
     files: u32,
 ) {
-    assert_ok(lfs_mount(lfs, caches, config));
+    assert_ok(lfs_mount(lfs, caches, config).await);
     for i in 0..files {
         let path = path_bytes(&format!("{prefix}/test{i}"));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-        assert_ok(lfs_stat(lfs, caches, path.as_ptr(), info.as_mut_ptr()));
+        assert_ok(lfs_stat(lfs, caches, path.as_ptr(), info.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(lfs));
 }
@@ -137,7 +143,8 @@ fn verify_after_exhaustion<S: Storage>(
 /// ERASE_CYCLES=10, BLOCK_CYCLES=5, ERASE_COUNT=256, FILES=10
 /// Write random files under "roadrunner/" until NOSPC, verify after exhaustion.
 #[rstest]
-fn test_exhaustion_normal(
+#[tokio::test]
+async fn test_exhaustion_normal(
     #[values(
         BadBlockBehavior::ProgError,
         BadBlockBehavior::EraseError,
@@ -156,21 +163,9 @@ fn test_exhaustion_normal(
     let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
 
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("roadrunner").as_ptr(),
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("roadrunner").as_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     let cycle = run_exhaustion(
@@ -179,7 +174,8 @@ fn test_exhaustion_normal(
         &env.config as *const LfsConfig,
         "roadrunner",
         files,
-    );
+    )
+    .await;
     eprintln!("test_exhaustion_normal({behavior:?}): completed {cycle} cycles");
 
     verify_after_exhaustion(
@@ -188,13 +184,15 @@ fn test_exhaustion_normal(
         &env.config as *const LfsConfig,
         "roadrunner",
         files,
-    );
+    )
+    .await;
 }
 
 /// Upstream: [cases.test_exhaustion_superblocks]
 /// Same as normal but files in root (no "roadrunner/"), forcing superblock expansion.
 #[rstest]
-fn test_exhaustion_superblocks(
+#[tokio::test]
+async fn test_exhaustion_superblocks(
     #[values(
         BadBlockBehavior::ProgError,
         BadBlockBehavior::EraseError,
@@ -214,11 +212,7 @@ fn test_exhaustion_superblocks(
     let mut caches = LfsCaches::default();
 
     // No mkdir — files go directly in root
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     // The superblocks variant uses "test{i}" paths (no parent dir),
     // but run_exhaustion expects a prefix. Use "" prefix and adjust paths.
@@ -227,7 +221,8 @@ fn test_exhaustion_superblocks(
         &mut caches,
         &env.config as *const LfsConfig,
         files,
-    );
+    )
+    .await;
     eprintln!("test_exhaustion_superblocks({behavior:?}): completed {cycle} cycles");
 
     verify_after_exhaustion_root(
@@ -235,11 +230,12 @@ fn test_exhaustion_superblocks(
         &mut caches,
         &env.config as *const LfsConfig,
         files,
-    );
+    )
+    .await;
 }
 
 /// Run exhaustion with files in root (no subdirectory prefix).
-fn run_exhaustion_root<S: Storage>(
+async fn run_exhaustion_root<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
@@ -247,7 +243,7 @@ fn run_exhaustion_root<S: Storage>(
 ) -> u32 {
     let mut cycle: u32 = 0;
     'outer: loop {
-        assert_ok(lfs_mount(lfs, caches, config));
+        assert_ok(lfs_mount(lfs, caches, config).await);
 
         for i in 0..files {
             let path = path_bytes(&format!("test{i}"));
@@ -255,27 +251,30 @@ fn run_exhaustion_root<S: Storage>(
             let size = 1u32 << ((test_prng(&mut prng) % 10) + 2);
 
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                lfs,
-                caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                common::LFS_O_WRONLY | common::LFS_O_CREAT | common::LFS_O_TRUNC,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    lfs,
+                    caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    common::LFS_O_WRONLY | common::LFS_O_CREAT | common::LFS_O_TRUNC,
+                )
+                .await,
+            );
 
             for _ in 0..size {
                 let c = [b'a' + (test_prng(&mut prng) % 26) as u8];
-                let res = lfs_file_write(lfs, caches, file.as_mut_ptr(), &c);
+                let res = lfs_file_write(lfs, caches, file.as_mut_ptr(), &c).await;
                 assert!(res == 1 || res == LFS_ERR_NOSPC);
                 if res == LFS_ERR_NOSPC {
-                    let err = lfs_file_close(lfs, caches, file.as_mut_ptr());
+                    let err = lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                     assert!(err == 0 || err == LFS_ERR_NOSPC);
                     assert_ok(lfs_unmount(lfs));
                     break 'outer;
                 }
             }
 
-            let err = lfs_file_close(lfs, caches, file.as_mut_ptr());
+            let err = lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
             assert!(err == 0 || err == LFS_ERR_NOSPC);
             if err == LFS_ERR_NOSPC {
                 assert_ok(lfs_unmount(lfs));
@@ -289,23 +288,26 @@ fn run_exhaustion_root<S: Storage>(
             let size = 1u32 << ((test_prng(&mut prng) % 10) + 2);
 
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                lfs,
-                caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                common::LFS_O_RDONLY,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    lfs,
+                    caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    common::LFS_O_RDONLY,
+                )
+                .await,
+            );
 
             for _ in 0..size {
                 let expected = b'a' + (test_prng(&mut prng) % 26) as u8;
                 let mut r = [0u8];
-                let n = lfs_file_read(lfs, caches, file.as_mut_ptr(), &mut r);
+                let n = lfs_file_read(lfs, caches, file.as_mut_ptr(), &mut r).await;
                 assert_eq!(n, 1);
                 assert_eq!(r[0], expected);
             }
 
-            assert_ok(lfs_file_close(lfs, caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(lfs, caches, file.as_mut_ptr()).await);
         }
 
         assert_ok(lfs_unmount(lfs));
@@ -314,17 +316,17 @@ fn run_exhaustion_root<S: Storage>(
     cycle
 }
 
-fn verify_after_exhaustion_root<S: Storage>(
+async fn verify_after_exhaustion_root<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     config: *const LfsConfig,
     files: u32,
 ) {
-    assert_ok(lfs_mount(lfs, caches, config));
+    assert_ok(lfs_mount(lfs, caches, config).await);
     for i in 0..files {
         let path = path_bytes(&format!("test{i}"));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-        assert_ok(lfs_stat(lfs, caches, path.as_ptr(), info.as_mut_ptr()));
+        assert_ok(lfs_stat(lfs, caches, path.as_ptr(), info.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(lfs));
 }
@@ -333,8 +335,8 @@ fn verify_after_exhaustion_root<S: Storage>(
 /// ERASE_CYCLES=20, BLOCK_CYCLES=10, ERASE_COUNT=256, FILES=10
 /// Run exhaustion twice: first with BLOCK_COUNT/2 usable blocks, then full device.
 /// Assert doubling blocks yields >= 2x cycles (within 10% tolerance).
-#[test]
-fn test_exhaustion_wear_leveling() {
+#[tokio::test]
+async fn test_exhaustion_wear_leveling() {
     let erase_cycles: u32 = 20;
     let block_cycles: i32 = (erase_cycles / 2) as i32;
     let files: u32 = 10;
@@ -362,21 +364,9 @@ fn test_exhaustion_wear_leveling() {
 
         let mut lfs = Lfs::new(&mut env.bd);
         let mut caches = LfsCaches::default();
-        assert_ok(lfs_format(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
-        assert_ok(lfs_mkdir(
-            &mut lfs,
-            &mut caches,
-            path_bytes("roadrunner").as_ptr(),
-        ));
+        assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+        assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("roadrunner").as_ptr()).await);
         assert_ok(lfs_unmount(&mut lfs));
 
         let cycle = run_exhaustion(
@@ -385,7 +375,8 @@ fn test_exhaustion_wear_leveling() {
             &env.config as *const LfsConfig,
             "roadrunner",
             files,
-        );
+        )
+        .await;
 
         verify_after_exhaustion(
             &mut lfs,
@@ -393,7 +384,8 @@ fn test_exhaustion_wear_leveling() {
             &env.config as *const LfsConfig,
             "roadrunner",
             files,
-        );
+        )
+        .await;
 
         run_cycles[run] = cycle;
         eprintln!(
@@ -414,8 +406,8 @@ fn test_exhaustion_wear_leveling() {
 
 /// Upstream: [cases.test_exhaustion_wear_leveling_superblocks]
 /// Same as wear_leveling but files in root (superblock expansion).
-#[test]
-fn test_exhaustion_wear_leveling_superblocks() {
+#[tokio::test]
+async fn test_exhaustion_wear_leveling_superblocks() {
     let erase_cycles: u32 = 20;
     let block_cycles: i32 = (erase_cycles / 2) as i32;
     let files: u32 = 10;
@@ -442,25 +434,23 @@ fn test_exhaustion_wear_leveling_superblocks() {
 
         let mut lfs = Lfs::new(&mut env.bd);
         let mut caches = LfsCaches::default();
-        assert_ok(lfs_format(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
         let cycle = run_exhaustion_root(
             &mut lfs,
             &mut caches,
             &env.config as *const LfsConfig,
             files,
-        );
+        )
+        .await;
 
         verify_after_exhaustion_root(
             &mut lfs,
             &mut caches,
             &env.config as *const LfsConfig,
             files,
-        );
+        )
+        .await;
 
         run_cycles[run] = cycle;
         eprintln!(
@@ -483,7 +473,8 @@ fn test_exhaustion_wear_leveling_superblocks() {
 /// if = 'BLOCK_CYCLES < CYCLES/10'
 /// Run CYCLES write cycles. Check wear distribution: stddev^2 < 8.
 #[rstest]
-fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: i32) {
+#[tokio::test]
+async fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: i32) {
     let cycles: u32 = 100;
     // C: if = 'BLOCK_CYCLES < CYCLES/10'
     if block_cycles_val >= (cycles / 10) as i32 {
@@ -501,30 +492,14 @@ fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: 
 
     let mut lfs = Lfs::new(&mut env.bd);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("roadrunner").as_ptr(),
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("roadrunner").as_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
     let mut cycle: u32 = 0;
     'outer: while cycle < cycles {
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
         for i in 0..files {
             let path = path_bytes(&format!("roadrunner/test{i}"));
@@ -533,27 +508,30 @@ fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: 
             let size: u32 = 1 << 4;
 
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                common::LFS_O_WRONLY | common::LFS_O_CREAT | common::LFS_O_TRUNC,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    common::LFS_O_WRONLY | common::LFS_O_CREAT | common::LFS_O_TRUNC,
+                )
+                .await,
+            );
 
             for _ in 0..size {
                 let c = [b'a' + (test_prng(&mut prng) % 26) as u8];
-                let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &c);
+                let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &c).await;
                 assert!(res == 1 || res == LFS_ERR_NOSPC);
                 if res == LFS_ERR_NOSPC {
-                    let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
+                    let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await;
                     assert!(err == 0 || err == LFS_ERR_NOSPC);
                     assert_ok(lfs_unmount(&mut lfs));
                     break 'outer;
                 }
             }
 
-            let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
+            let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await;
             assert!(err == 0 || err == LFS_ERR_NOSPC);
             if err == LFS_ERR_NOSPC {
                 assert_ok(lfs_unmount(&mut lfs));
@@ -567,23 +545,26 @@ fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: 
             let size: u32 = 1 << 4;
 
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                common::LFS_O_RDONLY,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    common::LFS_O_RDONLY,
+                )
+                .await,
+            );
 
             for _ in 0..size {
                 let expected = b'a' + (test_prng(&mut prng) % 26) as u8;
                 let mut r = [0u8];
-                let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut r);
+                let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut r).await;
                 assert_eq!(n, 1);
                 assert_eq!(r[0], expected);
             }
 
-            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         }
 
         assert_ok(lfs_unmount(&mut lfs));
@@ -591,20 +572,11 @@ fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: 
     }
 
     // Verify after exhaustion
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     for i in 0..files {
         let path = path_bytes(&format!("roadrunner/test{i}"));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-        assert_ok(lfs_stat(
-            &mut lfs,
-            &mut caches,
-            path.as_ptr(),
-            info.as_mut_ptr(),
-        ));
+        assert_ok(lfs_stat(&mut lfs, &mut caches, path.as_ptr(), info.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(&mut lfs));
 

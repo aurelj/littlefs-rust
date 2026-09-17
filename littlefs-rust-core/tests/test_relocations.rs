@@ -30,7 +30,8 @@ const COUNT: usize = 10;
 ///
 /// Fill FS, create many files in child dir. Triggers split when metadata overflows.
 #[rstest]
-fn test_relocations_dangling_split_dir(#[values(8, 1)] block_cycles: i32) {
+#[tokio::test]
+async fn test_relocations_dangling_split_dir(#[values(8, 1)] block_cycles: i32) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
@@ -38,42 +39,32 @@ fn test_relocations_dangling_split_dir(#[values(8, 1)] block_cycles: i32) {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("d0").as_ptr()));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("d0").as_ptr()).await);
     for i in 0..COUNT {
         let path = path_bytes(&format!("d0/f{i}"));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT,
-        ));
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"x");
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT,
+            )
+            .await,
+        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"x").await;
         assert_eq!(n, 1);
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
 
     for i in 0..COUNT {
         let path = path_bytes(&format!("d0/f{i}"));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-        assert_ok(lfs_stat(
-            &mut lfs,
-            &mut caches,
-            path.as_ptr(),
-            info.as_mut_ptr(),
-        ));
+        assert_ok(lfs_stat(&mut lfs, &mut caches, path.as_ptr(), info.as_mut_ptr()).await);
         let info = unsafe { info.assume_init() };
         let nul = info.name.iter().position(|&b| b == 0).unwrap_or(256);
         assert_eq!(
@@ -91,7 +82,8 @@ fn test_relocations_dangling_split_dir(#[values(8, 1)] block_cycles: i32) {
 ///
 /// Split dir handling: multiple dirs, nested sub with many files.
 #[rstest]
-fn test_relocations_outdated_head(#[values(8, 1)] block_cycles: i32) {
+#[tokio::test]
+async fn test_relocations_outdated_head(#[values(8, 1)] block_cycles: i32) {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
@@ -99,53 +91,35 @@ fn test_relocations_outdated_head(#[values(8, 1)] block_cycles: i32) {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     for i in 0..3 {
-        assert_ok(lfs_mkdir(
-            &mut lfs,
-            &mut caches,
-            path_bytes(&format!("d{i}")).as_ptr(),
-        ));
+        assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes(&format!("d{i}")).as_ptr()).await);
     }
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("d0/sub").as_ptr(),
-    ));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("d0/sub").as_ptr()).await);
     for i in 0..COUNT {
         let path = path_bytes(&format!("d0/sub/f{i}"));
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT,
-        ));
-        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"x");
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT,
+            )
+            .await,
+        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"x").await;
         assert_eq!(n, 1);
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
 
     for i in 0..COUNT {
         let path = path_bytes(&format!("d0/sub/f{i}"));
         let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-        assert_ok(lfs_stat(
-            &mut lfs,
-            &mut caches,
-            path.as_ptr(),
-            info.as_mut_ptr(),
-        ));
+        assert_ok(lfs_stat(&mut lfs, &mut caches, path.as_ptr(), info.as_mut_ptr()).await);
         let info = unsafe { info.assume_init() };
         let nul = info.name.iter().position(|&b| b == 0).unwrap_or(256);
         assert_eq!(
@@ -164,7 +138,8 @@ fn test_relocations_outdated_head(#[values(8, 1)] block_cycles: i32) {
 #[case(26, 1, 2000)]
 #[case(3, 3, 2000)]
 #[cfg(feature = "slow_tests")]
-fn test_relocations_nonreentrant(
+#[tokio::test]
+async fn test_relocations_nonreentrant(
     #[case] files: usize,
     #[case] depth: usize,
     #[case] cycles: usize,
@@ -179,37 +154,24 @@ fn test_relocations_nonreentrant(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     for _ in 0..cycles {
         for i in 0..files {
             let name = format!("{}", (b'a' + i as u8) as char);
             let path = path_bytes(&name);
-            let _ = lfs_mkdir(&mut lfs, &mut caches, path.as_ptr());
+            let _ = lfs_mkdir(&mut lfs, &mut caches, path.as_ptr()).await;
         }
         for i in 0..files {
             let name = format!("{}", (b'a' + i as u8) as char);
             let path = path_bytes(&name);
             let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-            assert_ok(lfs_stat(
-                &mut lfs,
-                &mut caches,
-                path.as_ptr(),
-                info.as_mut_ptr(),
-            ));
+            assert_ok(lfs_stat(&mut lfs, &mut caches, path.as_ptr(), info.as_mut_ptr()).await);
             let info = unsafe { info.assume_init() };
             let nul = info.name.iter().position(|&b| b == 0).unwrap_or(256);
             assert_eq!(core::str::from_utf8(&info.name[..nul]).unwrap(), name);
-            assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()));
+            assert_ok(lfs_remove(&mut lfs, &mut caches, path.as_ptr()).await);
         }
     }
 
@@ -223,7 +185,8 @@ fn test_relocations_nonreentrant(
 #[case(26, 1, 2000)]
 #[case(3, 3, 2000)]
 #[cfg(feature = "slow_tests")]
-fn test_relocations_nonreentrant_renames(
+#[tokio::test]
+async fn test_relocations_nonreentrant_renames(
     #[case] _files: usize,
     #[case] depth: usize,
     #[case] _cycles: usize,
@@ -238,73 +201,83 @@ fn test_relocations_nonreentrant_renames(
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     for name in ["x", "y"] {
         let path = path_bytes(name);
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT,
-        ));
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT,
+            )
+            .await,
+        );
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
 
-    assert_ok(lfs_rename(
-        &mut lfs,
-        &mut caches,
-        path_bytes("x").as_ptr(),
-        path_bytes("z").as_ptr(),
-    ));
-    assert_ok(lfs_rename(
-        &mut lfs,
-        &mut caches,
-        path_bytes("y").as_ptr(),
-        path_bytes("x").as_ptr(),
-    ));
-    assert_ok(lfs_rename(
-        &mut lfs,
-        &mut caches,
-        path_bytes("z").as_ptr(),
-        path_bytes("y").as_ptr(),
-    ));
+    assert_ok(
+        lfs_rename(
+            &mut lfs,
+            &mut caches,
+            path_bytes("x").as_ptr(),
+            path_bytes("z").as_ptr(),
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_rename(
+            &mut lfs,
+            &mut caches,
+            path_bytes("y").as_ptr(),
+            path_bytes("x").as_ptr(),
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_rename(
+            &mut lfs,
+            &mut caches,
+            path_bytes("z").as_ptr(),
+            path_bytes("y").as_ptr(),
+        )
+        .await,
+    );
 
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-    assert_ok(lfs_stat(
-        &mut lfs,
-        &mut caches,
-        path_bytes("x").as_ptr(),
-        info.as_mut_ptr(),
-    ));
+    assert_ok(
+        lfs_stat(
+            &mut lfs,
+            &mut caches,
+            path_bytes("x").as_ptr(),
+            info.as_mut_ptr(),
+        )
+        .await,
+    );
     let info = unsafe { info.assume_init() };
     let nul = info.name.iter().position(|&b| b == 0).unwrap_or(256);
     assert_eq!(core::str::from_utf8(&info.name[..nul]).unwrap(), "x");
 
     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-    assert_ok(lfs_stat(
-        &mut lfs,
-        &mut caches,
-        path_bytes("y").as_ptr(),
-        info.as_mut_ptr(),
-    ));
+    assert_ok(
+        lfs_stat(
+            &mut lfs,
+            &mut caches,
+            path_bytes("y").as_ptr(),
+            info.as_mut_ptr(),
+        )
+        .await,
+    );
     let info = unsafe { info.assume_init() };
     let nul = info.name.iter().position(|&b| b == 0).unwrap_or(256);
     assert_eq!(core::str::from_utf8(&info.name[..nul]).unwrap(), "y");
 
-    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("x").as_ptr()));
-    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("y").as_ptr()));
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("x").as_ptr()).await);
+    assert_ok(lfs_remove(&mut lfs, &mut caches, path_bytes("y").as_ptr()).await);
 
     assert_ok(lfs_unmount(&mut lfs));
 }
@@ -317,7 +290,12 @@ fn test_relocations_nonreentrant_renames(
 #[case(3, 3, 20)]
 #[cfg(feature = "slow_tests")]
 #[ignore = "bug: power-loss iteration returns -5 for some cases"]
-fn test_relocations_reentrant(#[case] files: usize, #[case] depth: usize, #[case] cycles: usize) {
+#[tokio::test]
+async fn test_relocations_reentrant(
+    #[case] files: usize,
+    #[case] depth: usize,
+    #[case] cycles: usize,
+) {
     if depth == 3 {
         return; // guard: DEPTH==3 && CACHE_SIZE!=64
     }
@@ -328,19 +306,15 @@ fn test_relocations_reentrant(#[case] files: usize, #[case] depth: usize, #[case
 
     let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let snapshot = env.snapshot();
 
     let result = run_powerloss_linear(
         &mut env,
         &snapshot,
         block_count,
-        |lfs, caches, config| {
-            let err = lfs_mount(lfs, caches, config);
+        async |lfs, caches, config| {
+            let err = lfs_mount(lfs, caches, config).await;
             if err != 0 {
                 return Err(err);
             }
@@ -348,7 +322,7 @@ fn test_relocations_reentrant(#[case] files: usize, #[case] depth: usize, #[case
                 for i in 0..files {
                     let name = format!("{}", (b'a' + i as u8) as char);
                     let path = path_bytes(&name);
-                    let err = lfs_mkdir(lfs, caches, path.as_ptr());
+                    let err = lfs_mkdir(lfs, caches, path.as_ptr()).await;
                     if err != 0 {
                         let _ = lfs_unmount(lfs);
                         return Err(err);
@@ -358,12 +332,12 @@ fn test_relocations_reentrant(#[case] files: usize, #[case] depth: usize, #[case
                     let name = format!("{}", (b'a' + i as u8) as char);
                     let path = path_bytes(&name);
                     let mut info = core::mem::MaybeUninit::<LfsInfo>::zeroed();
-                    let err = lfs_stat(lfs, caches, path.as_ptr(), info.as_mut_ptr());
+                    let err = lfs_stat(lfs, caches, path.as_ptr(), info.as_mut_ptr()).await;
                     if err != 0 {
                         let _ = lfs_unmount(lfs);
                         return Err(err);
                     }
-                    let err = lfs_remove(lfs, caches, path.as_ptr());
+                    let err = lfs_remove(lfs, caches, path.as_ptr()).await;
                     if err != 0 {
                         let _ = lfs_unmount(lfs);
                         return Err(err);
@@ -376,15 +350,16 @@ fn test_relocations_reentrant(#[case] files: usize, #[case] depth: usize, #[case
             }
             Ok(())
         },
-        |lfs, caches, config| {
-            let err = lfs_mount(lfs, caches, config);
+        async |lfs, caches, config| {
+            let err = lfs_mount(lfs, caches, config).await;
             if err != 0 {
                 return Err(err);
             }
             let _ = lfs_unmount(lfs);
             Ok(())
         },
-    );
+    )
+    .await;
     result.expect("test_relocations_reentrant should complete");
 }
 
@@ -395,7 +370,8 @@ fn test_relocations_reentrant(#[case] files: usize, #[case] depth: usize, #[case
 #[case(26, 1, 20)]
 #[case(3, 3, 20)]
 #[cfg(feature = "slow_tests")]
-fn test_relocations_reentrant_renames(
+#[tokio::test]
+async fn test_relocations_reentrant_renames(
     #[case] _files: usize,
     #[case] depth: usize,
     #[case] _cycles: usize,
@@ -410,27 +386,22 @@ fn test_relocations_reentrant_renames(
 
     let mut lfs = Lfs::new(&mut env.ctx);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     for name in ["x", "y"] {
         let path = path_bytes(name);
         let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-        assert_ok(lfs_file_open(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            path.as_ptr(),
-            LFS_O_WRONLY | LFS_O_CREAT,
-        ));
-        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+        assert_ok(
+            lfs_file_open(
+                &mut lfs,
+                &mut caches,
+                file.as_mut_ptr(),
+                path.as_ptr(),
+                LFS_O_WRONLY | LFS_O_CREAT,
+            )
+            .await,
+        );
+        assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     }
     assert_ok(lfs_unmount(&mut lfs));
 
@@ -440,8 +411,8 @@ fn test_relocations_reentrant_renames(
         &mut env,
         &snapshot,
         128,
-        |lfs, caches, config| {
-            let err = lfs_mount(lfs, caches, config);
+        async |lfs, caches, config| {
+            let err = lfs_mount(lfs, caches, config).await;
             if err != 0 {
                 return Err(err);
             }
@@ -450,7 +421,8 @@ fn test_relocations_reentrant_renames(
                 caches,
                 path_bytes("x").as_ptr(),
                 path_bytes("z").as_ptr(),
-            );
+            )
+            .await;
             if err != 0 {
                 let _ = lfs_unmount(lfs);
                 return Err(err);
@@ -460,7 +432,8 @@ fn test_relocations_reentrant_renames(
                 caches,
                 path_bytes("y").as_ptr(),
                 path_bytes("x").as_ptr(),
-            );
+            )
+            .await;
             if err != 0 {
                 let _ = lfs_unmount(lfs);
                 return Err(err);
@@ -470,17 +443,18 @@ fn test_relocations_reentrant_renames(
                 caches,
                 path_bytes("z").as_ptr(),
                 path_bytes("y").as_ptr(),
-            );
+            )
+            .await;
             if err != 0 {
                 let _ = lfs_unmount(lfs);
                 return Err(err);
             }
-            let err = lfs_remove(lfs, caches, path_bytes("x").as_ptr());
+            let err = lfs_remove(lfs, caches, path_bytes("x").as_ptr()).await;
             if err != 0 {
                 let _ = lfs_unmount(lfs);
                 return Err(err);
             }
-            let err = lfs_remove(lfs, caches, path_bytes("y").as_ptr());
+            let err = lfs_remove(lfs, caches, path_bytes("y").as_ptr()).await;
             if err != 0 {
                 let _ = lfs_unmount(lfs);
                 return Err(err);
@@ -491,14 +465,15 @@ fn test_relocations_reentrant_renames(
             }
             Ok(())
         },
-        |lfs, caches, config| {
-            let err = lfs_mount(lfs, caches, config);
+        async |lfs, caches, config| {
+            let err = lfs_mount(lfs, caches, config).await;
             if err != 0 {
                 return Err(err);
             }
             let _ = lfs_unmount(lfs);
             Ok(())
         },
-    );
+    )
+    .await;
     result.expect("test_relocations_reentrant_renames should complete");
 }

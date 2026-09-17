@@ -19,71 +19,67 @@ use littlefs_rust_core::{
 const ATTR_MAX: usize = 1022;
 
 // --- test_attrs_get_set ---
-#[test]
-fn test_attrs_get_set() {
+#[tokio::test]
+async fn test_attrs_get_set() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-    ));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("hello").as_ptr()).await);
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello");
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello").await;
     assert_eq!(n, 5);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let mut buffer = [0u8; 1024];
 
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'A',
-        b"aaaa",
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'B',
-        b"bbbbbb",
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'C',
-        b"ccccc",
-    ));
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello").as_ptr(),
+            b'A',
+            b"aaaa",
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello").as_ptr(),
+            b'B',
+            b"bbbbbb",
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello").as_ptr(),
+            b'C',
+            b"ccccc",
+        )
+        .await,
+    );
 
     let n = lfs_getattr(
         &mut lfs,
@@ -91,7 +87,8 @@ fn test_attrs_get_set() {
         path_bytes("hello").as_ptr(),
         b'A',
         &mut buffer[..4],
-    );
+    )
+    .await;
     assert_eq!(n, 4);
     let n = lfs_getattr(
         &mut lfs,
@@ -99,7 +96,8 @@ fn test_attrs_get_set() {
         path_bytes("hello").as_ptr(),
         b'B',
         &mut buffer[4..10],
-    );
+    )
+    .await;
     assert_eq!(n, 6);
     let n = lfs_getattr(
         &mut lfs,
@@ -107,58 +105,65 @@ fn test_attrs_get_set() {
         path_bytes("hello").as_ptr(),
         b'C',
         &mut buffer[10..15],
-    );
+    )
+    .await;
     assert_eq!(n, 5);
     assert_eq!(&buffer[0..4], b"aaaa");
     assert_eq!(&buffer[4..10], b"bbbbbb");
     assert_eq!(&buffer[10..15], b"ccccc");
 
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'B',
-        b"",
-    ));
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello").as_ptr(),
+            b'B',
+            b"",
+        )
+        .await,
+    );
     let n = lfs_getattr(
         &mut lfs,
         &mut caches,
         path_bytes("hello").as_ptr(),
         b'B',
         &mut buffer[4..10],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
     assert_eq!(&buffer[4..10], b"\0\0\0\0\0\0");
 
-    assert_ok(lfs_removeattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'B',
-    ));
+    assert_ok(lfs_removeattr(&mut lfs, &mut caches, path_bytes("hello").as_ptr(), b'B').await);
     let err = lfs_getattr(
         &mut lfs,
         &mut caches,
         path_bytes("hello").as_ptr(),
         b'B',
         &mut buffer[4..10],
-    );
+    )
+    .await;
     assert_err(LFS_ERR_NOATTR, err as i32);
 
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'B',
-        b"dddddd",
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'B',
-        b"eee",
-    ));
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello").as_ptr(),
+            b'B',
+            b"dddddd",
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello").as_ptr(),
+            b'B',
+            b"eee",
+        )
+        .await,
+    );
 
     let oversized = vec![0u8; ATTR_MAX + 1];
     let err = lfs_setattr(
@@ -167,114 +172,114 @@ fn test_attrs_get_set() {
         path_bytes("hello").as_ptr(),
         b'A',
         &oversized,
-    );
+    )
+    .await;
     assert_err(LFS_ERR_NOSPC, err);
 
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-        b'B',
-        b"fffffffff",
-    ));
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello").as_ptr(),
+            b'B',
+            b"fffffffff",
+        )
+        .await,
+    );
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let n = lfs_getattr(
         &mut lfs,
         &mut caches,
         path_bytes("hello").as_ptr(),
         b'B',
         &mut buffer[4..13],
-    );
+    )
+    .await;
     assert_eq!(n, 9);
     assert_eq!(&buffer[4..13], b"fffffffff");
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_RDONLY,
-    ));
-    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buffer[..32]);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buffer[..32]).await;
     assert_eq!(n, 5);
     assert_eq!(&buffer[..5], b"hello");
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- test_attrs_get_set_root ---
-#[test]
-fn test_attrs_get_set_root() {
+#[tokio::test]
+async fn test_attrs_get_set_root() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-    ));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("hello").as_ptr()).await);
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello");
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello").await;
     assert_eq!(n, 5);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let mut buffer = [0u8; 1024];
 
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("/").as_ptr(),
-        b'A',
-        b"aaaa",
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("/").as_ptr(),
-        b'B',
-        b"bbbbbb",
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("/").as_ptr(),
-        b'C',
-        b"ccccc",
-    ));
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("/").as_ptr(),
+            b'A',
+            b"aaaa",
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("/").as_ptr(),
+            b'B',
+            b"bbbbbb",
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("/").as_ptr(),
+            b'C',
+            b"ccccc",
+        )
+        .await,
+    );
 
     let n = lfs_getattr(
         &mut lfs,
@@ -282,7 +287,8 @@ fn test_attrs_get_set_root() {
         path_bytes("/").as_ptr(),
         b'A',
         &mut buffer[..4],
-    );
+    )
+    .await;
     assert_eq!(n, 4);
     let n = lfs_getattr(
         &mut lfs,
@@ -290,7 +296,8 @@ fn test_attrs_get_set_root() {
         path_bytes("/").as_ptr(),
         b'B',
         &mut buffer[4..10],
-    );
+    )
+    .await;
     assert_eq!(n, 6);
     let n = lfs_getattr(
         &mut lfs,
@@ -298,39 +305,28 @@ fn test_attrs_get_set_root() {
         path_bytes("/").as_ptr(),
         b'C',
         &mut buffer[10..15],
-    );
+    )
+    .await;
     assert_eq!(n, 5);
     assert_eq!(&buffer[0..4], b"aaaa");
     assert_eq!(&buffer[4..10], b"bbbbbb");
     assert_eq!(&buffer[10..15], b"ccccc");
 
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("/").as_ptr(),
-        b'B',
-        b"",
-    ));
-    assert_ok(lfs_removeattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("/").as_ptr(),
-        b'B',
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("/").as_ptr(),
-        b'B',
-        b"fffffffff",
-    ));
+    assert_ok(lfs_setattr(&mut lfs, &mut caches, path_bytes("/").as_ptr(), b'B', b"").await);
+    assert_ok(lfs_removeattr(&mut lfs, &mut caches, path_bytes("/").as_ptr(), b'B').await);
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("/").as_ptr(),
+            b'B',
+            b"fffffffff",
+        )
+        .await,
+    );
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let mut buffer = [0u8; 1024];
     let n = lfs_getattr(
         &mut lfs,
@@ -338,7 +334,8 @@ fn test_attrs_get_set_root() {
         path_bytes("/").as_ptr(),
         b'A',
         &mut buffer[..4],
-    );
+    )
+    .await;
     assert_eq!(n, 4);
     let n = lfs_getattr(
         &mut lfs,
@@ -346,69 +343,60 @@ fn test_attrs_get_set_root() {
         path_bytes("/").as_ptr(),
         b'B',
         &mut buffer[4..13],
-    );
+    )
+    .await;
     assert_eq!(n, 9);
     assert_eq!(&buffer[4..13], b"fffffffff");
 
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_RDONLY,
-    ));
-    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buffer[..32]);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buffer[..32]).await;
     assert_eq!(n, 5);
     assert_eq!(&buffer[..5], b"hello");
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- test_attrs_get_set_file ---
 // Uses lfs_file_opencfg with attrs: WRONLY writes attrs on close, RDONLY reads on open.
-#[test]
-fn test_attrs_get_set_file() {
+#[tokio::test]
+async fn test_attrs_get_set_file() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-    ));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("hello").as_ptr()).await);
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello");
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello").await;
     assert_eq!(n, 5);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let mut buffer = [0u8; 1024];
     buffer[0..4].copy_from_slice(b"aaaa");
     buffer[4..10].copy_from_slice(b"bbbbbb");
@@ -437,15 +425,18 @@ fn test_attrs_get_set_file() {
         attr_count: 3,
     };
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_opencfg(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_WRONLY,
-        &cfg,
-    ));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(
+        lfs_file_opencfg(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_WRONLY,
+            &cfg,
+        )
+        .await,
+    );
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     buffer.fill(0);
     let mut attrs_read = [
@@ -471,99 +462,94 @@ fn test_attrs_get_set_file() {
         attr_count: 3,
     };
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_opencfg(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_RDONLY,
-        &cfg_read,
-    ));
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(
+        lfs_file_opencfg(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_RDONLY,
+            &cfg_read,
+        )
+        .await,
+    );
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_eq!(&buffer[0..4], b"aaaa");
     assert_eq!(&buffer[4..10], b"bbbbbb");
     assert_eq!(&buffer[10..15], b"ccccc");
 
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_RDONLY,
-    ));
-    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buffer[..32]);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buffer[..32]).await;
     assert_eq!(n, 5);
     assert_eq!(&buffer[..5], b"hello");
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
 // --- test_attrs_deferred_file ---
 // Uses lfs_file_opencfg with deferred attrs (synced on file_sync).
-#[test]
-fn test_attrs_deferred_file() {
+#[tokio::test]
+async fn test_attrs_deferred_file() {
     init_logger();
     let mut env = default_config(128);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
-    assert_ok(lfs_mkdir(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello").as_ptr(),
-    ));
+    assert_ok(lfs_mkdir(&mut lfs, &mut caches, path_bytes("hello").as_ptr()).await);
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello");
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello").await;
     assert_eq!(n, 5);
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello/hello").as_ptr(),
-        b'B',
-        b"fffffffff",
-    ));
-    assert_ok(lfs_setattr(
-        &mut lfs,
-        &mut caches,
-        path_bytes("hello/hello").as_ptr(),
-        b'C',
-        b"ccccc",
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello/hello").as_ptr(),
+            b'B',
+            b"fffffffff",
+        )
+        .await,
+    );
+    assert_ok(
+        lfs_setattr(
+            &mut lfs,
+            &mut caches,
+            path_bytes("hello/hello").as_ptr(),
+            b'C',
+            b"ccccc",
+        )
+        .await,
+    );
 
     let mut buffer = [0u8; 1024];
     let n = lfs_getattr(
@@ -572,7 +558,8 @@ fn test_attrs_deferred_file() {
         path_bytes("hello/hello").as_ptr(),
         b'B',
         &mut buffer[..9],
-    );
+    )
+    .await;
     assert_eq!(n, 9);
     assert_eq!(&buffer[..9], b"fffffffff");
 
@@ -602,16 +589,19 @@ fn test_attrs_deferred_file() {
         attr_count: 3,
     };
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_opencfg(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path_bytes("hello/hello").as_ptr(),
-        LFS_O_WRONLY,
-        &cfg,
-    ));
+    assert_ok(
+        lfs_file_opencfg(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path_bytes("hello/hello").as_ptr(),
+            LFS_O_WRONLY,
+            &cfg,
+        )
+        .await,
+    );
 
-    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()).await);
 
     let n = lfs_getattr(
         &mut lfs,
@@ -619,10 +609,11 @@ fn test_attrs_deferred_file() {
         path_bytes("hello/hello").as_ptr(),
         b'B',
         &mut buffer[..9],
-    );
+    )
+    .await;
     assert_eq!(n, 4);
     assert_eq!(&buffer[..9], b"gggg\0\0\0\0\0");
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }

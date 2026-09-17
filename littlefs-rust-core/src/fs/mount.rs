@@ -206,14 +206,14 @@ pub fn lfs_tortoise_detectcycles(
 ///     return err;
 /// }
 /// ```
-pub fn lfs_mount_<S: Storage>(
+pub async fn lfs_mount_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     cfg: *const crate::lfs_config::LfsConfig,
 ) -> i32 {
     use crate::block_alloc::alloc::lfs_alloc_drop;
     use crate::dir::fetch::{lfs_dir_fetchmatch, lfs_dir_getgstate};
-    use crate::dir::find::{lfs_dir_find_match, LfsDirFindMatch};
+    use crate::dir::find::LfsDirFindMatch;
     use crate::dir::traverse::lfs_dir_get;
     use crate::error::LFS_ERR_INVAL;
     use crate::fs::init::{lfs_deinit, lfs_init};
@@ -250,9 +250,11 @@ pub fn lfs_mount_<S: Storage>(
         };
 
         let magic = b"littlefs";
-        let find_match = LfsDirFindMatch {
-            name: magic.as_ptr(),
-            size: 8,
+        let mut find_match_cb = crate::dir::find::FindMatchCb {
+            match_data: LfsDirFindMatch {
+                name: magic.as_ptr(),
+                size: 8,
+            },
         };
 
         let mut err_inner = 0i32;
@@ -284,10 +286,9 @@ pub fn lfs_mount_<S: Storage>(
                 lfs_mktag(0x7ff, 0x3ff, 0),
                 lfs_mktag(LFS_TYPE_SUPERBLOCK, 0, 8),
                 core::ptr::null_mut(),
-                Some(&|lfs, caches, tag, buffer| {
-                    lfs_dir_find_match(lfs, caches, &find_match, tag, buffer)
-                }),
-            );
+                Some(&mut find_match_cb),
+            )
+            .await;
 
             if tag < 0 {
                 err_inner = tag;
@@ -309,7 +310,8 @@ pub fn lfs_mount_<S: Storage>(
                         core::mem::size_of::<LfsSuperblock>() as u32,
                     ),
                     &mut superblock as *mut _ as *mut core::ffi::c_void,
-                );
+                )
+                .await;
                 if sbtag < 0 {
                     err_inner = sbtag;
                     break;
@@ -365,7 +367,7 @@ pub fn lfs_mount_<S: Storage>(
 
             crate::lfs_trace!("mount: before getgstate");
             let mut gstate = lfs.gstate;
-            err_inner = lfs_dir_getgstate(lfs, caches, &dir as *const _, &mut gstate);
+            err_inner = lfs_dir_getgstate(lfs, caches, &dir as *const _, &mut gstate).await;
             lfs.gstate = gstate;
             crate::lfs_trace!(
                 "mount: after getgstate err={} tail={:?}",

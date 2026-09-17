@@ -109,11 +109,11 @@ impl PowerLossCtx {
 }
 
 impl Storage for PowerLossCtx {
-    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
-        self.ram.read(block, offset, buf)
+    async fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+        self.ram.read(block, offset, buf).await
     }
 
-    fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
+    async fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), Error> {
         let err = self.check_and_count();
         if err != 0 {
             if self.behavior == PowerLossBehavior::Ooo {
@@ -124,10 +124,10 @@ impl Storage for PowerLossCtx {
         if self.behavior == PowerLossBehavior::Ooo && self.ooo_first_block.is_none() {
             self.save_ooo_block(block);
         }
-        self.ram.write(block, offset, data)
+        self.ram.write(block, offset, data).await
     }
 
-    fn erase(&mut self, block: u32) -> Result<(), Error> {
+    async fn erase(&mut self, block: u32) -> Result<(), Error> {
         let err = self.check_and_count();
         if err != 0 {
             if self.behavior == PowerLossBehavior::Ooo {
@@ -138,11 +138,11 @@ impl Storage for PowerLossCtx {
         if self.behavior == PowerLossBehavior::Ooo && self.ooo_first_block.is_none() {
             self.save_ooo_block(block);
         }
-        let _ = self.ram.erase(block);
+        let _ = self.ram.erase(block).await;
         Ok(())
     }
 
-    fn sync(&mut self) -> Result<(), Error> {
+    async fn sync(&mut self) -> Result<(), Error> {
         self.clear_ooo_tracking();
         Ok(())
     }
@@ -274,7 +274,7 @@ impl PowerLossEnv {
 /// - `snapshot`: BD state before each iteration (caller prepares via format/setup, then env.snapshot())
 /// - `op`: mount, perform operations. Returns `Err(LFS_ERR_IO)` when power loss hits.
 /// - `verify`: remount on partially-written BD, run consistency checks.
-pub fn run_powerloss_linear<O, V>(
+pub async fn run_powerloss_linear<O, V>(
     env: &mut PowerLossEnv,
     snapshot: &[u8],
     max_iter: u32,
@@ -282,8 +282,8 @@ pub fn run_powerloss_linear<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     for n in 1..=max_iter {
@@ -293,10 +293,10 @@ where
 
         let mut lfs = Lfs::new(&mut env.ctx.ram);
         let mut caches = LfsCaches::default();
-        match op(&mut lfs, &mut caches, config_ptr) {
+        match op(&mut lfs, &mut caches, config_ptr).await {
             Ok(()) => return Ok(()),
             Err(LFS_ERR_IO) => {
-                verify(&mut lfs, &mut caches, config_ptr)?;
+                verify(&mut lfs, &mut caches, config_ptr).await?;
             }
             Err(e) => return Err(e),
         }
@@ -308,7 +308,7 @@ where
 /// fail at write N=1, 2, 4, 8, 16, … Useful for faster smoke testing.
 ///
 /// Upstream: test_runner.c `log` mode.
-pub fn run_powerloss_log<O, V>(
+pub async fn run_powerloss_log<O, V>(
     env: &mut PowerLossEnv,
     snapshot: &[u8],
     max_iter: u32,
@@ -316,8 +316,8 @@ pub fn run_powerloss_log<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     let mut n: u32 = 1;
@@ -328,10 +328,10 @@ where
 
         let mut lfs = Lfs::new(&mut env.ctx.ram);
         let mut caches = LfsCaches::default();
-        match op(&mut lfs, &mut caches, config_ptr) {
+        match op(&mut lfs, &mut caches, config_ptr).await {
             Ok(()) => return Ok(()),
             Err(LFS_ERR_IO) => {
-                verify(&mut lfs, &mut caches, config_ptr)?;
+                verify(&mut lfs, &mut caches, config_ptr).await?;
             }
             Err(e) => return Err(e),
         }
@@ -345,7 +345,7 @@ where
 /// snapshot, verify, then recurse with depth-1.
 ///
 /// Upstream: test_runner.c `exhaustive` mode.
-pub fn run_powerloss_exhaustive<O, V>(
+pub async fn run_powerloss_exhaustive<O, V>(
     env: &mut PowerLossEnv,
     snapshot: &[u8],
     max_iter: u32,
@@ -354,13 +354,13 @@ pub fn run_powerloss_exhaustive<O, V>(
     mut verify: V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
-    run_powerloss_exhaustive_inner(env, snapshot, max_iter, max_depth, &mut op, &mut verify)
+    run_powerloss_exhaustive_inner(env, snapshot, max_iter, max_depth, &mut op, &mut verify).await
 }
 
-fn run_powerloss_exhaustive_inner<O, V>(
+async fn run_powerloss_exhaustive_inner<O, V>(
     env: &mut PowerLossEnv,
     snapshot: &[u8],
     max_iter: u32,
@@ -369,8 +369,8 @@ fn run_powerloss_exhaustive_inner<O, V>(
     verify: &mut V,
 ) -> Result<(), i32>
 where
-    O: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
-    V: FnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    O: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
+    V: AsyncFnMut(&mut Lfs<&mut RamStorage>, &mut LfsCaches, *const LfsConfig) -> Result<(), i32>,
 {
     let config_ptr = &env.config as *const LfsConfig;
     for n in 1..=max_iter {
@@ -380,20 +380,21 @@ where
 
         let mut lfs = Lfs::new(&mut env.ctx.ram);
         let mut caches = LfsCaches::default();
-        match op(&mut lfs, &mut caches, config_ptr) {
+        match op(&mut lfs, &mut caches, config_ptr).await {
             Ok(()) => return Ok(()),
             Err(LFS_ERR_IO) => {
-                verify(&mut lfs, &mut caches, config_ptr)?;
+                verify(&mut lfs, &mut caches, config_ptr).await?;
                 if depth > 1 {
                     let inner_snapshot = env.snapshot();
-                    let inner = run_powerloss_exhaustive_inner(
+                    let inner = Box::pin(run_powerloss_exhaustive_inner(
                         env,
                         &inner_snapshot,
                         max_iter,
                         depth - 1,
                         op,
                         verify,
-                    );
+                    ))
+                    .await;
                     // Propagate real errors (verify failures); ignore Err(IO)
                     // which just means max_iter wasn't enough at this depth.
                     if let Err(e) = inner {

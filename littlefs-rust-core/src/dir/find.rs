@@ -1,8 +1,12 @@
 //! Directory find. Per lfs.c lfs_dir_find, lfs_dir_find_match.
 
+use alloc::boxed::Box;
+use core::future::Future;
+use core::pin::Pin;
+
 use crate::bd::bd::lfs_bd_cmp;
 use crate::bd::Storage;
-use crate::dir::fetch::lfs_dir_fetchmatch;
+use crate::dir::fetch::{lfs_dir_fetchmatch, FetchCb};
 use crate::dir::traverse::lfs_dir_get;
 use crate::dir::LfsMdir;
 use crate::error::{LFS_ERR_INVAL, LFS_ERR_NOENT, LFS_ERR_NOTDIR};
@@ -22,6 +26,23 @@ const LFS_CMP_GT: i32 = 2;
 pub(crate) struct LfsDirFindMatch {
     pub name: *const u8,
     pub size: lfs_size_t,
+}
+
+/// Adapter binding `LfsDirFindMatch` as an `lfs_dir_fetchmatch` callback.
+pub(crate) struct FindMatchCb {
+    pub match_data: LfsDirFindMatch,
+}
+
+impl<S: Storage> FetchCb<S> for FindMatchCb {
+    fn call<'a>(
+        &'a mut self,
+        lfs: &'a mut Lfs<S>,
+        caches: &'a mut crate::fs::LfsCaches,
+        tag: lfs_tag_t,
+        off: &'a lfs_diskoff,
+    ) -> Pin<Box<dyn Future<Output = i32> + 'a>> {
+        Box::pin(lfs_dir_find_match(lfs, caches, &self.match_data, tag, off))
+    }
 }
 
 /// Per lfs.c lfs_dir_find_match (and struct lfs_dir_find_match) (lines 1447-1475)
@@ -59,7 +80,7 @@ pub(crate) struct LfsDirFindMatch {
 /// }
 ///
 /// ```
-pub(crate) fn lfs_dir_find_match<S: Storage>(
+pub(crate) async fn lfs_dir_find_match<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     name: &LfsDirFindMatch,
@@ -76,7 +97,8 @@ pub(crate) fn lfs_dir_find_match<S: Storage>(
         disk.block,
         disk.off,
         buf,
-    );
+    )
+    .await;
     if res != LFS_CMP_EQ {
         return res;
     }
@@ -203,7 +225,7 @@ pub(crate) fn lfs_dir_find_match<S: Storage>(
 ///     }
 /// }
 /// ```
-pub(crate) fn lfs_dir_find<S: Storage>(
+pub(crate) async fn lfs_dir_find<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     dir: *mut LfsMdir,
@@ -309,7 +331,8 @@ pub(crate) fn lfs_dir_find<S: Storage>(
                     lfs_mktag(0x700, 0x3ff, 0),
                     lfs_mktag(LFS_TYPE_STRUCT, lfs_tag_id(tag as u32) as u32, 8),
                     dir_ref.tail.as_mut_ptr() as *mut core::ffi::c_void,
-                );
+                )
+                .await;
                 if res < 0 {
                     return res;
                 }
@@ -354,10 +377,9 @@ pub(crate) fn lfs_dir_find<S: Storage>(
                     lfs_mktag(0x780, 0, 0),
                     lfs_mktag(LFS_TYPE_NAME, 0, namelen),
                     id,
-                    Some(&|lfs, caches, tag, buffer| {
-                        lfs_dir_find_match(lfs, caches, &match_data, tag, buffer)
-                    }),
-                );
+                    Some(&mut FindMatchCb { match_data }),
+                )
+                .await;
                 if tag < 0 {
                     return tag;
                 }

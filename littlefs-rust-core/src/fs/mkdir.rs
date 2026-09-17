@@ -114,12 +114,12 @@ use crate::util::{lfs_pair_fromle32, lfs_pair_tole32, lfs_path_islast, lfs_path_
 /// }
 /// #endif
 /// ```
-pub fn lfs_mkdir_<S: Storage>(
+pub async fn lfs_mkdir_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
 ) -> i32 {
-    let err = lfs_fs_forceconsistency(lfs, caches);
+    let err = lfs_fs_forceconsistency(lfs, caches).await;
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
@@ -135,7 +135,7 @@ pub fn lfs_mkdir_<S: Storage>(
 
         let mut path_ptr = path;
         let mut id: u16 = 0;
-        let find_err = lfs_dir_find(lfs, caches, &mut cwd.m, &mut path_ptr, &mut id);
+        let find_err = lfs_dir_find(lfs, caches, &mut cwd.m, &mut path_ptr, &mut id).await;
         if !(find_err == LFS_ERR_NOENT && lfs_path_islast(slice_until_nul(path_ptr))) {
             return if find_err < 0 {
                 find_err
@@ -152,7 +152,7 @@ pub fn lfs_mkdir_<S: Storage>(
 
         unsafe { lfs_alloc_ckpoint(lfs) };
         let mut dir = core::mem::zeroed();
-        let err = lfs_dir_alloc(lfs, caches, &mut dir);
+        let err = lfs_dir_alloc(lfs, caches, &mut dir).await;
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -173,7 +173,7 @@ pub fn lfs_mkdir_<S: Storage>(
                 }
                 iter += 1;
             }
-            let err = lfs_dir_fetch(lfs, caches, &mut pred, &pred.tail);
+            let err = lfs_dir_fetch(lfs, caches, &mut pred, &pred.tail).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -184,7 +184,7 @@ pub fn lfs_mkdir_<S: Storage>(
             tag: lfs_mktag(LFS_TYPE_SOFTTAIL, 0x3ff, 8),
             buffer: pred.tail.as_ptr() as *const core::ffi::c_void,
         }];
-        let err = lfs_dir_commit(lfs, caches, &mut dir, attrs1.as_ptr() as *const _, 1);
+        let err = lfs_dir_commit(lfs, caches, &mut dir, attrs1.as_ptr() as *const _, 1).await;
         lfs_pair_fromle32(&mut pred.tail);
         if err != 0 {
             return crate::lfs_pass_err!(err);
@@ -205,7 +205,7 @@ pub fn lfs_mkdir_<S: Storage>(
                 tag: lfs_mktag(LFS_TYPE_SOFTTAIL, 0x3ff, 8),
                 buffer: dir.pair.as_ptr() as *const core::ffi::c_void,
             }];
-            let err = lfs_dir_commit(lfs, caches, &mut pred, attrs2.as_ptr() as *const _, 1);
+            let err = lfs_dir_commit(lfs, caches, &mut pred, attrs2.as_ptr() as *const _, 1).await;
             lfs_pair_fromle32(&mut dir.pair);
             lfs.mlist = cwd.next;
             if err != 0 {
@@ -237,7 +237,7 @@ pub fn lfs_mkdir_<S: Storage>(
                 buffer: dir.pair.as_ptr() as *const core::ffi::c_void,
             },
         ];
-        let err = lfs_dir_commit(lfs, caches, &mut cwd.m, attrs3.as_ptr() as *const _, 4);
+        let err = lfs_dir_commit(lfs, caches, &mut cwd.m, attrs3.as_ptr() as *const _, 4).await;
         lfs_pair_fromle32(&mut dir.pair);
         err
     }

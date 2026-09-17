@@ -83,7 +83,10 @@ pub fn lfs_alloc_lookahead<S: Storage>(lfs: &mut Lfs<S>, block: lfs_block_t) -> 
 /// }
 /// #endif
 /// ```
-pub fn lfs_alloc_scan<S: Storage>(lfs: &mut Lfs<S>, caches: &mut crate::fs::LfsCaches) -> i32 {
+pub async fn lfs_alloc_scan<S: Storage>(
+    lfs: &mut Lfs<S>,
+    caches: &mut crate::fs::LfsCaches,
+) -> i32 {
     use crate::fs::traverse::lfs_fs_traverse_;
     use crate::util::lfs_min;
 
@@ -110,7 +113,8 @@ pub fn lfs_alloc_scan<S: Storage>(lfs: &mut Lfs<S>, caches: &mut crate::fs::LfsC
             caches,
             &mut |lfs, block| lfs_alloc_lookahead(lfs, block),
             true,
-        );
+        )
+        .await;
         if err != 0 {
             crate::lfs_trace!("alloc_scan: traverse err={}", err);
             lfs_alloc_drop(lfs);
@@ -178,7 +182,7 @@ pub fn lfs_alloc_scan<S: Storage>(lfs: &mut Lfs<S>, caches: &mut crate::fs::LfsC
 /// }
 /// #endif
 /// ```
-pub fn lfs_alloc<S: Storage>(
+pub async fn lfs_alloc<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     block: *mut lfs_block_t,
@@ -264,7 +268,7 @@ pub fn lfs_alloc<S: Storage>(
 
             // No blocks in our lookahead buffer, we need to scan the filesystem for
             // unused blocks in the next lookahead window.
-            let err = lfs_alloc_scan(lfs, caches);
+            let err = lfs_alloc_scan(lfs, caches).await;
             if err != 0 {
                 crate::lfs_trace!(
                     "lfs_alloc NOSPC: alloc_scan returned {} start={} next={}",

@@ -134,7 +134,7 @@ pub fn lfs_cache_zero<S: Storage>(lfs: &Lfs<S>, cache: &mut LfsCache) {
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_bd_read<S: Storage>(
+pub async fn lfs_bd_read<S: Storage>(
     lfs: &mut Lfs<S>,
     pcache: Option<&LfsCache>,
     rcache: &mut LfsCache,
@@ -199,7 +199,10 @@ pub fn lfs_bd_read<S: Storage>(
             {
                 diff = lfs_aligndown(diff, cfg.read_size);
                 crate::lfs_trace!("bd_read block={} off={} size={}", block, off, diff);
-                let res = lfs.storage.read(block, off, &mut buffer[..diff as usize]);
+                let res = lfs
+                    .storage
+                    .read(block, off, &mut buffer[..diff as usize])
+                    .await;
                 let err = from_empty_result(res);
                 crate::lfs_assert!(err <= 0);
                 if err != 0 {
@@ -226,7 +229,7 @@ pub fn lfs_bd_read<S: Storage>(
                 rcache.size
             );
             let buf = core::slice::from_raw_parts_mut(rcache.buffer, rcache.size as usize);
-            let res = lfs.storage.read(rcache.block, rcache.off, buf);
+            let res = lfs.storage.read(rcache.block, rcache.off, buf).await;
             let err = from_empty_result(res);
             crate::lfs_assert!(err <= 0);
             if err != 0 {
@@ -273,7 +276,7 @@ pub fn lfs_bd_read<S: Storage>(
 ///     return LFS_CMP_EQ;
 /// }
 /// ```
-pub fn lfs_bd_cmp<S: Storage>(
+pub async fn lfs_bd_cmp<S: Storage>(
     lfs: &mut Lfs<S>,
     pcache: Option<&LfsCache>,
     rcache: &mut LfsCache,
@@ -300,7 +303,8 @@ pub fn lfs_bd_cmp<S: Storage>(
             block,
             off + i as lfs_off_t,
             &mut dat[..diff],
-        );
+        )
+        .await;
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -343,7 +347,7 @@ pub fn lfs_bd_cmp<S: Storage>(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_bd_crc<S: Storage>(
+pub async fn lfs_bd_crc<S: Storage>(
     lfs: &mut Lfs<S>,
     pcache: Option<&LfsCache>,
     rcache: &mut LfsCache,
@@ -368,7 +372,8 @@ pub fn lfs_bd_crc<S: Storage>(
             block,
             off + i,
             &mut dat[..diff],
-        );
+        )
+        .await;
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -417,7 +422,7 @@ pub fn lfs_bd_crc<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_flush<S: Storage>(
+pub async fn lfs_bd_flush<S: Storage>(
     lfs: &mut Lfs<S>,
     pcache: &mut LfsCache,
     rcache: &mut LfsCache,
@@ -439,7 +444,7 @@ pub fn lfs_bd_flush<S: Storage>(
                 diff
             );
             let buf = core::slice::from_raw_parts(pcache.buffer, diff as usize);
-            let res = lfs.storage.write(pcache.block, pcache.off, buf);
+            let res = lfs.storage.write(pcache.block, pcache.off, buf).await;
             let err = from_empty_result(res);
             crate::lfs_assert!(err <= 0);
             if err != 0 {
@@ -449,7 +454,7 @@ pub fn lfs_bd_flush<S: Storage>(
 
             if validate {
                 lfs_cache_drop(rcache);
-                let res = lfs_bd_cmp(lfs, None, rcache, diff, pcache.block, pcache.off, buf);
+                let res = lfs_bd_cmp(lfs, None, rcache, diff, pcache.block, pcache.off, buf).await;
                 if res < 0 {
                     return res;
                 }
@@ -485,7 +490,7 @@ pub fn lfs_bd_flush<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_sync<S: Storage>(
+pub async fn lfs_bd_sync<S: Storage>(
     lfs: &mut Lfs<S>,
     pcache: &mut LfsCache,
     rcache: &mut LfsCache,
@@ -494,12 +499,12 @@ pub fn lfs_bd_sync<S: Storage>(
     unsafe {
         lfs_cache_drop(rcache);
 
-        let err = lfs_bd_flush(lfs, pcache, rcache, validate);
+        let err = lfs_bd_flush(lfs, pcache, rcache, validate).await;
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
 
-        let res = lfs.storage.sync();
+        let res = lfs.storage.sync().await;
         let err = from_empty_result(res);
         crate::lfs_assert!(err <= 0);
         err
@@ -558,7 +563,7 @@ pub fn lfs_bd_sync<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_prog<S: Storage>(
+pub async fn lfs_bd_prog<S: Storage>(
     lfs: &mut Lfs<S>,
     pcache: &mut LfsCache,
     rcache: &mut LfsCache,
@@ -611,7 +616,7 @@ pub fn lfs_bd_prog<S: Storage>(
 
                 pcache.size = lfs_max(pcache.size, off - pcache.off);
                 if pcache.size == cfg.cache_size {
-                    let err = lfs_bd_flush(lfs, pcache, rcache, validate);
+                    let err = lfs_bd_flush(lfs, pcache, rcache, validate).await;
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
@@ -644,11 +649,11 @@ pub fn lfs_bd_prog<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_bd_erase<S: Storage>(lfs: &mut Lfs<S>, block: lfs_block_t) -> i32 {
+pub async fn lfs_bd_erase<S: Storage>(lfs: &mut Lfs<S>, block: lfs_block_t) -> i32 {
     unsafe {
         crate::lfs_assert!(block < lfs.block_count);
         crate::lfs_trace!("bd_erase block={}", block);
-        let res = lfs.storage.erase(block);
+        let res = lfs.storage.erase(block).await;
         let err = from_empty_result(res);
         crate::lfs_assert!(err <= 0);
         if err != 0 {

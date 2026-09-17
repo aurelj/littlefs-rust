@@ -71,7 +71,7 @@ pub fn lfs_fs_prepmove<S: Storage>(
 /// Translation docs: Rewrite superblock when needssuperblock is set (older minor version on disk).
 ///
 /// C: lfs.c:4916-4953
-pub fn lfs_fs_desuperblock<S: Storage>(
+pub async fn lfs_fs_desuperblock<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
 ) -> i32 {
@@ -93,7 +93,7 @@ pub fn lfs_fs_desuperblock<S: Storage>(
 
         let mut root = core::mem::zeroed();
         let root_pair = lfs.root;
-        let err = lfs_dir_fetch(lfs, caches, &mut root, &root_pair);
+        let err = lfs_dir_fetch(lfs, caches, &mut root, &root_pair).await;
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -117,7 +117,7 @@ pub fn lfs_fs_desuperblock<S: Storage>(
             ),
             buffer: &superblock as *const _ as *const _,
         }];
-        let err = lfs_dir_commit(lfs, caches, &mut root, attrs.as_ptr() as *const _, 1);
+        let err = lfs_dir_commit(lfs, caches, &mut root, attrs.as_ptr() as *const _, 1).await;
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -166,7 +166,7 @@ pub fn lfs_fs_desuperblock<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_fs_demove<S: Storage>(
+pub async fn lfs_fs_demove<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
 ) -> i32 {
@@ -188,7 +188,7 @@ pub fn lfs_fs_demove<S: Storage>(
 
         let mut movedir = core::mem::zeroed();
         let pair = lfs.gdisk.pair;
-        let err = lfs_dir_fetch(lfs, caches, &mut movedir, &pair);
+        let err = lfs_dir_fetch(lfs, caches, &mut movedir, &pair).await;
         if err != 0 {
             return crate::lfs_pass_err!(err);
         }
@@ -200,7 +200,7 @@ pub fn lfs_fs_demove<S: Storage>(
             tag: lfs_mktag(LFS_TYPE_DELETE, moveid as u32, 0),
             buffer: core::ptr::null(),
         }];
-        lfs_dir_commit(lfs, caches, &mut movedir, attrs.as_ptr() as *const _, 1)
+        lfs_dir_commit(lfs, caches, &mut movedir, attrs.as_ptr() as *const _, 1).await
     }
 }
 
@@ -342,7 +342,7 @@ pub fn lfs_fs_demove<S: Storage>(
 /// Two passes: pass 0 for half-orphans, pass 1 for full-orphans.
 ///
 /// C: lfs.c:4991-5120
-pub fn lfs_fs_deorphan<S: Storage>(
+pub async fn lfs_fs_deorphan<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
     powerloss: bool,
@@ -403,14 +403,14 @@ pub fn lfs_fs_deorphan<S: Storage>(
                     }
                     iter += 1;
                 }
-                let err = lfs_dir_fetch(lfs, caches, &mut dir, &pdir.tail);
+                let err = lfs_dir_fetch(lfs, caches, &mut dir, &pdir.tail).await;
                 if err != 0 {
                     return crate::lfs_pass_err!(err);
                 }
 
                 if !pdir.split {
                     let mut parent = core::mem::zeroed();
-                    let tag = lfs_fs_parent(lfs, caches, &pdir.tail, &mut parent);
+                    let tag = lfs_fs_parent(lfs, caches, &pdir.tail, &mut parent).await;
                     if tag < 0 && tag != LFS_ERR_NOENT {
                         return tag;
                     }
@@ -424,7 +424,8 @@ pub fn lfs_fs_deorphan<S: Storage>(
                             lfs_mktag(0x7ff, 0x3ff, 0),
                             tag as u32,
                             pair.as_mut_ptr() as *mut core::ffi::c_void,
-                        );
+                        )
+                        .await;
                         if state < 0 {
                             return state;
                         }
@@ -459,7 +460,8 @@ pub fn lfs_fs_deorphan<S: Storage>(
                                 &mut pdir,
                                 attrs.as_ptr() as *const _,
                                 2,
-                            );
+                            )
+                            .await;
                             lfs_pair_fromle32(&mut pair);
                             if state < 0 {
                                 return state;
@@ -474,7 +476,8 @@ pub fn lfs_fs_deorphan<S: Storage>(
                     if pass == 1 && tag == LFS_ERR_NOENT && powerloss {
                         let mut gdelta = lfs.gdelta;
                         let err =
-                            crate::dir::fetch::lfs_dir_getgstate(lfs, caches, &dir, &mut gdelta);
+                            crate::dir::fetch::lfs_dir_getgstate(lfs, caches, &dir, &mut gdelta)
+                                .await;
                         lfs.gdelta = gdelta;
                         if err != 0 {
                             return crate::lfs_pass_err!(err);
@@ -492,7 +495,8 @@ pub fn lfs_fs_deorphan<S: Storage>(
                             &mut pdir,
                             attrs.as_ptr() as *const _,
                             1,
-                        );
+                        )
+                        .await;
                         lfs_pair_fromle32(&mut dir_tail);
                         if state < 0 {
                             return state;
@@ -519,23 +523,23 @@ pub fn lfs_fs_deorphan<S: Storage>(
 /// demove, and deorphan in sequence.
 ///
 /// C: lfs.c:5122-5140
-pub fn lfs_fs_forceconsistency<S: Storage>(
+pub async fn lfs_fs_forceconsistency<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut super::lfs::LfsCaches,
 ) -> i32 {
     crate::lfs_trace!("forceconsistency: start");
-    let err = lfs_fs_desuperblock(lfs, caches);
+    let err = lfs_fs_desuperblock(lfs, caches).await;
     crate::lfs_trace!("forceconsistency: after desuperblock err={}", err);
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
-    let err = lfs_fs_demove(lfs, caches);
+    let err = lfs_fs_demove(lfs, caches).await;
     crate::lfs_trace!("forceconsistency: after demove err={}", err);
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
     crate::lfs_trace!("forceconsistency: before deorphan");
-    let result = lfs_fs_deorphan(lfs, caches, true);
+    let result = lfs_fs_deorphan(lfs, caches, true).await;
     crate::lfs_trace!("forceconsistency: after deorphan err={}", result);
     result
 }

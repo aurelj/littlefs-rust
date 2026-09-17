@@ -114,7 +114,7 @@ use crate::bd::Storage;
 /// includeorphans: when true, include directory struct blocks in the traversal.
 ///
 /// C: lfs.c:4693-4794
-pub fn lfs_fs_traverse_<S: Storage>(
+pub async fn lfs_fs_traverse_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     cb: &mut dyn FnMut(&mut super::lfs::Lfs<S>, crate::types::lfs_block_t) -> i32,
@@ -181,7 +181,7 @@ pub fn lfs_fs_traverse_<S: Storage>(
 
             // iterate through ids in directory
             crate::lfs_trace!("fs_traverse: fetch tail={:?} count={}", dir.tail, dir.count);
-            let err = lfs_dir_fetch(lfs, caches, &mut dir, &dir.tail);
+            let err = lfs_dir_fetch(lfs, caches, &mut dir, &dir.tail).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -195,7 +195,8 @@ pub fn lfs_fs_traverse_<S: Storage>(
                     lfs_mktag(0x700, 0x3ff, 0),
                     lfs_mktag(crate::lfs_type::lfs_type::LFS_TYPE_STRUCT, id as u32, 8),
                     raw.as_mut_ptr() as *mut core::ffi::c_void,
-                );
+                )
+                .await;
                 if tag < 0 {
                     if tag == crate::error::LFS_ERR_NOENT {
                         continue;
@@ -205,7 +206,8 @@ pub fn lfs_fs_traverse_<S: Storage>(
                 lfs_pair_fromle32(&mut raw);
 
                 if u32::from(lfs_tag_type3(tag as u32)) == LFS_TYPE_CTZSTRUCT {
-                    let err = lfs_ctz_traverse(lfs, None, &mut caches.rcache, raw[0], raw[1], cb);
+                    let err =
+                        lfs_ctz_traverse(lfs, None, &mut caches.rcache, raw[0], raw[1], cb).await;
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
@@ -256,7 +258,8 @@ pub fn lfs_fs_traverse_<S: Storage>(
                         f_ref.ctz.head,
                         f_ref.ctz.size,
                         cb,
-                    );
+                    )
+                    .await;
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
@@ -271,7 +274,8 @@ pub fn lfs_fs_traverse_<S: Storage>(
                         f_ref.block,
                         f_ref.pos,
                         cb,
-                    );
+                    )
+                    .await;
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }

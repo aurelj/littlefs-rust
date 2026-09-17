@@ -24,7 +24,7 @@ use crate::types::{lfs_block_t, lfs_size_t, lfs_ssize_t};
 ///     return lfs_dir_getinfo(lfs, &cwd, lfs_tag_id(tag), info);
 /// }
 /// ```
-pub fn lfs_stat_<S: Storage>(
+pub async fn lfs_stat_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
@@ -42,7 +42,7 @@ pub fn lfs_stat_<S: Storage>(
         let mut cwd = core::mem::zeroed::<crate::dir::LfsMdir>();
         let mut path_ptr = path;
 
-        let tag = lfs_dir_find(lfs, caches, &mut cwd, &mut path_ptr, core::ptr::null_mut());
+        let tag = lfs_dir_find(lfs, caches, &mut cwd, &mut path_ptr, core::ptr::null_mut()).await;
         if tag < 0 {
             return tag;
         }
@@ -73,7 +73,7 @@ pub fn lfs_stat_<S: Storage>(
             p = p.add(1);
         }
 
-        lfs_dir_getinfo(lfs, caches, &cwd, lfs_tag_id(tag as u32), info)
+        lfs_dir_getinfo(lfs, caches, &cwd, lfs_tag_id(tag as u32), info).await
     }
 }
 
@@ -121,7 +121,7 @@ pub fn lfs_stat_<S: Storage>(
 ///     return 0;
 /// }
 /// ```
-pub fn lfs_fs_stat_<S: Storage>(
+pub async fn lfs_fs_stat_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     fsinfo: *mut crate::lfs_info::LfsFsinfo,
@@ -151,7 +151,7 @@ pub fn lfs_fs_stat_<S: Storage>(
                 tail: [0, 0],
             };
             let root = lfs.root;
-            let err = lfs_dir_fetch(lfs, caches, &mut dir, &root);
+            let err = lfs_dir_fetch(lfs, caches, &mut dir, &root).await;
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
@@ -167,7 +167,8 @@ pub fn lfs_fs_stat_<S: Storage>(
                     core::mem::size_of::<LfsSuperblock>() as u32,
                 ),
                 &mut superblock as *mut _ as *mut core::ffi::c_void,
-            );
+            )
+            .await;
             if tag < 0 {
                 return tag;
             }
@@ -198,7 +199,7 @@ pub fn lfs_fs_stat_<S: Storage>(
 ///     return size;
 /// }
 /// ```
-pub fn lfs_fs_size_<S: Storage>(
+pub async fn lfs_fs_size_<S: Storage>(
     lfs: &mut super::lfs::Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
 ) -> lfs_ssize_t {
@@ -211,7 +212,8 @@ pub fn lfs_fs_size_<S: Storage>(
             0
         },
         false,
-    );
+    )
+    .await;
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }

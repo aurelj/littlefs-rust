@@ -43,7 +43,8 @@ fn lfs_min(a: u32, b: u32) -> u32 {
 #[case(2048, 2049)]
 #[case(2048, 8192)]
 #[case(2049, 8193)]
-fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
+#[tokio::test]
+async fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
     if (medium == 31 || medium == 32) && large >= 512 {
         return; // truncated CTZ read returns 0xFF
     }
@@ -52,26 +53,21 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("baldynoop");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
 
     let size = HAIR.len() as u32;
     let mut j: u32 = 0;
@@ -82,52 +78,46 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &HAIR[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         j += chunk;
     }
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), large as i32);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDWR,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDWR,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), large as i32);
 
-    assert_ok(lfs_file_truncate(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        medium,
-    ));
+    assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), medium).await);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     let mut buf = [0u8; 16];
@@ -139,7 +129,8 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &mut buf[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
         j += chunk;
@@ -149,10 +140,11 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -162,7 +154,8 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
 #[case(32, 512)]
 #[case(512, 2048)]
 #[case(2048, 8192)]
-fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
+#[tokio::test]
+async fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
     if medium == 32 && large >= 512 {
         return; // truncated CTZ read returns 0xFF
     }
@@ -171,26 +164,21 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("baldyread");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
 
     let size = HAIR.len() as u32;
     let mut j: u32 = 0;
@@ -201,35 +189,30 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &HAIR[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         j += chunk;
     }
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), large as i32);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDWR,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDWR,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), large as i32);
 
-    assert_ok(lfs_file_truncate(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        medium,
-    ));
+    assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), medium).await);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     let mut buf = [0u8; 16];
@@ -241,7 +224,8 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &mut buf[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
         j += chunk;
@@ -251,24 +235,24 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     j = 0;
@@ -279,7 +263,8 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &mut buf[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
         j += chunk;
@@ -289,17 +274,18 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
 /// Upstream: [cases.test_truncate_write_read]
 /// No defines. Sequential buffer, chop last 1/4, read 3/4, seek to 1/4, chop to half, read second quarter.
-#[test]
-fn test_truncate_write_read() {
+#[tokio::test]
+async fn test_truncate_write_read() {
     let mut env = default_config(256);
     init_context(&mut env);
 
@@ -309,26 +295,21 @@ fn test_truncate_write_read() {
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("sequence");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC,
+        )
+        .await,
+    );
 
     let mut wb = vec![0u8; size as usize];
     let mut rb = vec![0u8; size as usize];
@@ -336,24 +317,19 @@ fn test_truncate_write_read() {
         wb[j as usize] = j as u8;
     }
 
-    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &wb);
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &wb).await;
     assert_eq!(n, size as i32);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), size as i32);
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), size as i32);
 
     assert_eq!(
-        lfs_file_seek(&mut lfs, &mut caches, file.as_mut_ptr(), 0, LFS_SEEK_SET),
+        lfs_file_seek(&mut lfs, &mut caches, file.as_mut_ptr(), 0, LFS_SEEK_SET).await,
         0
     );
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 0);
 
     let trunc = size - qsize;
-    assert_ok(lfs_file_truncate(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        trunc,
-    ));
+    assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), trunc).await);
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 0);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), trunc as i32);
 
@@ -362,7 +338,8 @@ fn test_truncate_write_read() {
         &mut caches,
         file.as_mut_ptr(),
         &mut rb[..size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, trunc as i32);
     assert_eq!(&rb[..trunc as usize], &wb[..trunc as usize]);
 
@@ -374,18 +351,14 @@ fn test_truncate_write_read() {
             file.as_mut_ptr(),
             qsize as i32,
             LFS_SEEK_SET
-        ),
+        )
+        .await,
         qsize as i32
     );
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), qsize as i32);
 
     let trunc2 = trunc - qsize;
-    assert_ok(lfs_file_truncate(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        trunc2,
-    ));
+    assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), trunc2).await);
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), qsize as i32);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), trunc2 as i32);
 
@@ -394,14 +367,15 @@ fn test_truncate_write_read() {
         &mut caches,
         file.as_mut_ptr(),
         &mut rb[..size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, (trunc2 - qsize) as i32);
     assert_eq!(
         &rb[..(trunc2 - qsize) as usize],
         &wb[(qsize as usize)..(trunc2 as usize)]
     );
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -410,32 +384,28 @@ fn test_truncate_write_read() {
 #[case(31, 32)]
 #[case(32, 512)]
 #[case(2048, 8192)]
-fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
+#[tokio::test]
+async fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
     let mut env = default_config(512);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("baldywrite");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_WRONLY | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_WRONLY | LFS_O_CREAT,
+        )
+        .await,
+    );
 
     let size = HAIR.len() as u32;
     let mut j: u32 = 0;
@@ -446,35 +416,30 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &HAIR[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         j += chunk;
     }
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), large as i32);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDWR,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDWR,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), large as i32);
 
-    assert_ok(lfs_file_truncate(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        medium,
-    ));
+    assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), medium).await);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     j = 0;
@@ -485,27 +450,27 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &BALD[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         j += chunk;
     }
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDONLY,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDONLY,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     let mut buf = [0u8; 16];
@@ -517,7 +482,8 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &mut buf[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &BALD[..chunk as usize]);
         j += chunk;
@@ -527,10 +493,11 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..BALD.len()],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
 
@@ -539,7 +506,8 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
 #[case(4)]
 #[case(512)]
 #[cfg(feature = "slow_tests")]
-fn test_truncate_reentrant_write(#[case] small_size: u32) {
+#[tokio::test]
+async fn test_truncate_reentrant_write(#[case] small_size: u32) {
     const LARGE: u32 = 2048;
     let medium_sizes = [0u32, 3, 4, 5, 31, 32, 33, 511, 512, 513, 1023, 1024, 1025];
     for &medium in &medium_sizes {
@@ -552,16 +520,8 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
         let config_ptr = &env.config as *const LfsConfig;
         let mut lfs = Lfs::new(&mut env.ctx);
         let mut caches = LfsCaches::default();
-        assert_ok(littlefs_rust_core::lfs_format(
-            &mut lfs,
-            &mut caches,
-            config_ptr,
-        ));
-        assert_ok(littlefs_rust_core::lfs_mount(
-            &mut lfs,
-            &mut caches,
-            config_ptr,
-        ));
+        assert_ok(littlefs_rust_core::lfs_format(&mut lfs, &mut caches, config_ptr).await);
+        assert_ok(littlefs_rust_core::lfs_mount(&mut lfs, &mut caches, config_ptr).await);
         assert_ok(littlefs_rust_core::lfs_unmount(&mut lfs));
         let snapshot = env.snapshot();
 
@@ -569,11 +529,11 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
             &mut env,
             &snapshot,
             5000,
-            |lfs, caches, cfg| {
-                let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+            async |lfs, caches, cfg| {
+                let err = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
                 if err != 0 {
-                    let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg);
-                    let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg);
+                    let _ = littlefs_rust_core::lfs_format(lfs, caches, cfg).await;
+                    let e = littlefs_rust_core::lfs_mount(lfs, caches, cfg).await;
                     if e != 0 {
                         return Err(e);
                     }
@@ -587,7 +547,8 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                     file.as_mut_ptr(),
                     path.as_ptr(),
                     LFS_O_RDONLY,
-                );
+                )
+                .await;
                 if open_err == 0 {
                     let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
                     if sz == 0
@@ -604,7 +565,8 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                                 caches,
                                 file.as_mut_ptr(),
                                 &mut buf[..chunk as usize],
-                            );
+                            )
+                            .await;
                             if n != chunk as i32 {
                                 return Err(-1);
                             }
@@ -618,7 +580,8 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                             j += chunk;
                         }
                     }
-                    let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                    let e =
+                        littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                     if e != 0 {
                         return Err(e);
                     }
@@ -632,7 +595,8 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                     file.as_mut_ptr(),
                     path.as_ptr(),
                     LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
-                );
+                )
+                .await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -644,14 +608,15 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                         caches,
                         file.as_mut_ptr(),
                         &HAIR[..chunk as usize],
-                    );
+                    )
+                    .await;
                     if n < 0 {
                         return Err(n);
                     }
                     assert_eq!(n, chunk as i32);
                     j += chunk;
                 }
-                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -662,12 +627,14 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                     file.as_mut_ptr(),
                     path.as_ptr(),
                     LFS_O_RDWR,
-                );
+                )
+                .await;
                 if e != 0 {
                     return Err(e);
                 }
                 let e =
-                    littlefs_rust_core::lfs_file_truncate(lfs, caches, file.as_mut_ptr(), medium);
+                    littlefs_rust_core::lfs_file_truncate(lfs, caches, file.as_mut_ptr(), medium)
+                        .await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -679,13 +646,14 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                         caches,
                         file.as_mut_ptr(),
                         &BALD[..chunk as usize],
-                    );
+                    )
+                    .await;
                     if n < 0 {
                         return Err(n);
                     }
                     j += chunk;
                 }
-                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -696,7 +664,8 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                     file.as_mut_ptr(),
                     path.as_ptr(),
                     LFS_O_RDWR,
-                );
+                )
+                .await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -705,7 +674,8 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                     caches,
                     file.as_mut_ptr(),
                     small_size,
-                );
+                )
+                .await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -717,13 +687,14 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                         caches,
                         file.as_mut_ptr(),
                         &COMB[..chunk as usize],
-                    );
+                    )
+                    .await;
                     if n < 0 {
                         return Err(n);
                     }
                     j += chunk;
                 }
-                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
+                let e = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr()).await;
                 if e != 0 {
                     return Err(e);
                 }
@@ -734,16 +705,17 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                 }
                 Ok(())
             },
-            |_, _, _| Ok(()),
-        );
+            async |_, _, _| Ok(()),
+        )
+        .await;
         result.expect("reentrant truncate write should eventually succeed");
     }
 }
 
 /// Upstream: [cases.test_truncate_aggressive]
 /// CONFIG 0..5, 5 files, various shrink/expand patterns
-#[test]
-fn test_truncate_aggressive() {
+#[tokio::test]
+async fn test_truncate_aggressive() {
     const SMALL: u32 = 32;
     const MEDIUM: u32 = 2048;
     const LARGE: u32 = 8192;
@@ -796,16 +768,8 @@ fn test_truncate_aggressive() {
     let mut caches = LfsCaches::default();
 
     for (config, _) in configs.iter().enumerate() {
-        assert_ok(lfs_format(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
         let startsizes = configs[config][0];
         let startseeks = configs[config][1];
         let hotsizes = configs[config][2];
@@ -814,13 +778,16 @@ fn test_truncate_aggressive() {
         for i in 0..COUNT {
             let path = path_bytes(&format!("hairyhead{}", i));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
+                )
+                .await,
+            );
 
             let size = HAIR.len() as u32;
             let mut j: u32 = 0;
@@ -831,7 +798,8 @@ fn test_truncate_aggressive() {
                     &mut caches,
                     file.as_mut_ptr(),
                     &HAIR[..chunk as usize],
-                );
+                )
+                .await;
                 assert_eq!(n, chunk as i32);
                 j += chunk;
             }
@@ -848,42 +816,39 @@ fn test_truncate_aggressive() {
                         file.as_mut_ptr(),
                         startseeks[i] as i32,
                         LFS_SEEK_SET,
-                    ),
+                    )
+                    .await,
                     startseeks[i] as i32
                 );
             }
 
-            assert_ok(lfs_file_truncate(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                hotsizes[i],
-            ));
+            assert_ok(
+                lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), hotsizes[i]).await,
+            );
             assert_eq!(
                 lfs_file_size(&mut lfs, file.as_mut_ptr()),
                 hotsizes[i] as i32
             );
 
-            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         }
 
         assert_ok(lfs_unmount(&mut lfs));
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
         for i in 0..COUNT {
             let path = path_bytes(&format!("hairyhead{}", i));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                LFS_O_RDWR,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    LFS_O_RDWR,
+                )
+                .await,
+            );
             assert_eq!(
                 lfs_file_size(&mut lfs, file.as_mut_ptr()),
                 hotsizes[i] as i32
@@ -900,7 +865,8 @@ fn test_truncate_aggressive() {
                     &mut caches,
                     file.as_mut_ptr(),
                     &mut buf[..chunk2 as usize],
-                );
+                )
+                .await;
                 assert_eq!(n, chunk2 as i32);
                 assert_eq!(&buf[..chunk2 as usize], &HAIR[..chunk2 as usize]);
                 j += chunk2;
@@ -912,7 +878,8 @@ fn test_truncate_aggressive() {
                     &mut caches,
                     file.as_mut_ptr(),
                     &mut buf[..chunk as usize],
-                );
+                )
+                .await;
                 assert_eq!(n, chunk as i32);
                 assert!(
                     buf[..chunk as usize].iter().all(|&b| b == 0),
@@ -922,37 +889,33 @@ fn test_truncate_aggressive() {
                 j += chunk;
             }
 
-            assert_ok(lfs_file_truncate(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                coldsizes[i],
-            ));
+            assert_ok(
+                lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), coldsizes[i]).await,
+            );
             assert_eq!(
                 lfs_file_size(&mut lfs, file.as_mut_ptr()),
                 coldsizes[i] as i32
             );
 
-            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         }
 
         assert_ok(lfs_unmount(&mut lfs));
-        assert_ok(lfs_mount(
-            &mut lfs,
-            &mut caches,
-            &env.config as *const LfsConfig,
-        ));
+        assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
         for i in 0..COUNT {
             let path = path_bytes(&format!("hairyhead{}", i));
             let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-            assert_ok(lfs_file_open(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                path.as_ptr(),
-                LFS_O_RDONLY,
-            ));
+            assert_ok(
+                lfs_file_open(
+                    &mut lfs,
+                    &mut caches,
+                    file.as_mut_ptr(),
+                    path.as_ptr(),
+                    LFS_O_RDONLY,
+                )
+                .await,
+            );
             assert_eq!(
                 lfs_file_size(&mut lfs, file.as_mut_ptr()),
                 coldsizes[i] as i32
@@ -968,7 +931,8 @@ fn test_truncate_aggressive() {
                     &mut caches,
                     file.as_mut_ptr(),
                     &mut buf[..chunk as usize],
-                );
+                )
+                .await;
                 assert_eq!(n, chunk as i32);
                 assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
                 j += chunk;
@@ -980,7 +944,8 @@ fn test_truncate_aggressive() {
                     &mut caches,
                     file.as_mut_ptr(),
                     &mut buf[..chunk as usize],
-                );
+                )
+                .await;
                 assert_eq!(n, chunk as i32);
                 assert!(
                     buf[..chunk as usize].iter().all(|&b| b == 0),
@@ -990,7 +955,7 @@ fn test_truncate_aggressive() {
                 j += chunk;
             }
 
-            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+            assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
         }
 
         assert_ok(lfs_unmount(&mut lfs));
@@ -1008,32 +973,28 @@ fn test_truncate_aggressive() {
 #[case(2049)]
 #[case(8192)]
 #[case(8193)]
-fn test_truncate_nop(#[case] medium: u32) {
+#[tokio::test]
+async fn test_truncate_nop(#[case] medium: u32) {
     let mut env = default_config(512);
     init_context(&mut env);
 
     let mut lfs = Lfs::new(&mut env.ram);
     let mut caches = LfsCaches::default();
-    assert_ok(lfs_format(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
+    assert_ok(lfs_format(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
 
     let path = path_bytes("baldynoop");
     let mut file = core::mem::MaybeUninit::<LfsFile>::zeroed();
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDWR | LFS_O_CREAT,
-    ));
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDWR | LFS_O_CREAT,
+        )
+        .await,
+    );
 
     let size = HAIR.len() as u32;
     let mut j: u32 = 0;
@@ -1044,28 +1005,19 @@ fn test_truncate_nop(#[case] medium: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &HAIR[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
-        assert_ok(lfs_file_truncate(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            j + chunk,
-        ));
+        assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), j + chunk).await);
         j += chunk;
     }
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     assert_eq!(
-        lfs_file_seek(&mut lfs, &mut caches, file.as_mut_ptr(), 0, LFS_SEEK_SET),
+        lfs_file_seek(&mut lfs, &mut caches, file.as_mut_ptr(), 0, LFS_SEEK_SET).await,
         0
     );
-    assert_ok(lfs_file_truncate(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        medium,
-    ));
+    assert_ok(lfs_file_truncate(&mut lfs, &mut caches, file.as_mut_ptr(), medium).await);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     let mut buf = [0u8; 16];
@@ -1077,7 +1029,8 @@ fn test_truncate_nop(#[case] medium: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &mut buf[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
         j += chunk;
@@ -1087,24 +1040,24 @@ fn test_truncate_nop(#[case] medium: u32) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 
-    assert_ok(lfs_mount(
-        &mut lfs,
-        &mut caches,
-        &env.config as *const LfsConfig,
-    ));
-    assert_ok(lfs_file_open(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        path.as_ptr(),
-        LFS_O_RDWR,
-    ));
+    assert_ok(lfs_mount(&mut lfs, &mut caches, &env.config as *const LfsConfig).await);
+    assert_ok(
+        lfs_file_open(
+            &mut lfs,
+            &mut caches,
+            file.as_mut_ptr(),
+            path.as_ptr(),
+            LFS_O_RDWR,
+        )
+        .await,
+    );
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), medium as i32);
 
     j = 0;
@@ -1115,7 +1068,8 @@ fn test_truncate_nop(#[case] medium: u32) {
             &mut caches,
             file.as_mut_ptr(),
             &mut buf[..chunk as usize],
-        );
+        )
+        .await;
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
         j += chunk;
@@ -1125,9 +1079,10 @@ fn test_truncate_nop(#[case] medium: u32) {
         &mut caches,
         file.as_mut_ptr(),
         &mut buf[..size as usize],
-    );
+    )
+    .await;
     assert_eq!(n, 0);
 
-    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
+    assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()).await);
     assert_ok(lfs_unmount(&mut lfs));
 }
