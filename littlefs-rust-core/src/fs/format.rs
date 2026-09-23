@@ -502,8 +502,8 @@ pub unsafe fn test_format_minimal_superblock<S: Storage>(
         };
 
         let rev = 1u32;
-        let rev_le = lfs_tole32(rev);
-        err = lfs_dir_commitprog(lfs, caches, &mut commit, &rev_le as *const _ as *const _, 4);
+        let rev_le = rev.to_le_bytes();
+        err = lfs_dir_commitprog(lfs, caches, &mut commit, &rev_le);
         if err != 0 {
             lfs_deinit(lfs);
             return crate::lfs_pass_err!(err);

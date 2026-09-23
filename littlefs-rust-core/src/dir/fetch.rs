@@ -350,16 +350,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
         for i in 0..2 {
             crate::lfs_trace!("fetchmatch: reading rev for pair[{}]={}", i, pair[i]);
             let mut rev_buf = [0u8; 4];
-            let err = lfs_bd_read(
-                lfs,
-                None,
-                &mut caches.rcache,
-                4,
-                pair[i],
-                0,
-                rev_buf.as_mut_ptr(),
-                4,
-            );
+            let err = lfs_bd_read(lfs, None, &mut caches.rcache, 4, pair[i], 0, &mut rev_buf);
             revs[i] = u32::from_le_bytes(rev_buf);
             if err != 0 && err != LFS_ERR_CORRUPT {
                 return err as lfs_stag_t;
@@ -388,9 +379,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
             let mut hasfcrc = false;
             let mut fcrc = LfsFcrc { size: 0, crc: 0 };
 
-            let rev_le = lfs_tole32(dir.rev);
-            let mut crc = lfs_crc(0xffff_ffff, &rev_le as *const _ as *const u8, 4);
-            dir.rev = lfs_fromle32(dir.rev);
+            let mut crc = lfs_crc(0xffff_ffff, &dir.rev.to_le_bytes());
 
             #[cfg(feature = "loop_limits")]
             let mut tag_iter: u32 = 0;
@@ -427,8 +416,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                     cfg.block_size,
                     dir.pair[0],
                     off,
-                    tag_buf.as_mut_ptr(),
-                    4,
+                    &mut tag_buf,
                 );
                 if err != 0 {
                     if err == LFS_ERR_CORRUPT {
@@ -437,7 +425,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                     return err as lfs_stag_t;
                 }
 
-                crc = lfs_crc(crc, tag_buf.as_ptr(), 4);
+                crc = lfs_crc(crc, &tag_buf);
                 let tag_raw = u32::from_be_bytes(tag_buf);
                 let mut tag = tag_raw ^ ptag;
 
@@ -459,8 +447,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                         cfg.block_size,
                         dir.pair[0],
                         off + 4,
-                        dcrc_buf.as_mut_ptr(),
-                        4,
+                        &mut dcrc_buf,
                     );
                     if err != 0 {
                         if err == LFS_ERR_CORRUPT {
@@ -476,7 +463,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
 
                     ptag ^= (lfs_tag_chunk(tag) as lfs_tag_t & 1) << 31;
 
-                    lfs.seed = lfs_crc(lfs.seed, &crc as *const _ as *const u8, 4);
+                    lfs.seed = lfs_crc(lfs.seed, &crc.to_ne_bytes());
 
                     besttag = tempbesttag;
                     dir.off = off + lfs_tag_dsize(tag);
@@ -542,8 +529,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                         cfg.block_size,
                         dir.pair[0],
                         off + 4,
-                        tail_buf.as_mut_ptr(),
-                        8,
+                        &mut tail_buf,
                     );
                     if err != 0 {
                         if err == LFS_ERR_CORRUPT {
@@ -562,8 +548,7 @@ pub fn lfs_dir_fetchmatch<S: Storage>(
                         cfg.block_size,
                         dir.pair[0],
                         off + 4,
-                        fcrc_buf.as_mut_ptr(),
-                        fcrc_buf.len() as u32,
+                        &mut fcrc_buf,
                     );
                     if err != 0 {
                         if err == LFS_ERR_CORRUPT {

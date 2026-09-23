@@ -67,6 +67,7 @@ pub(crate) fn lfs_dir_find_match<S: Storage>(
     disk: &lfs_diskoff,
 ) -> i32 {
     let diff = lfs_min(name.size, lfs_tag_size(tag));
+    let buf = unsafe { core::slice::from_raw_parts(name.name, diff as usize) };
     let res = lfs_bd_cmp(
         lfs,
         None,
@@ -74,8 +75,7 @@ pub(crate) fn lfs_dir_find_match<S: Storage>(
         diff,
         disk.block,
         disk.off,
-        name.name,
-        diff,
+        buf,
     );
     if res != LFS_CMP_EQ {
         return res;

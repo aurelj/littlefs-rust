@@ -718,13 +718,7 @@ fn write_file_mounted<S: Storage>(
         p.as_ptr(),
         flags,
     ))?;
-    let n = littlefs_rust_core::lfs_file_write(
-        lfs,
-        caches,
-        file.as_mut_ptr(),
-        content.as_ptr() as *const core::ffi::c_void,
-        content.len() as u32,
-    );
+    let n = littlefs_rust_core::lfs_file_write(lfs, caches, file.as_mut_ptr(), content);
     check(littlefs_rust_core::lfs_file_close(
         lfs,
         caches,
@@ -764,13 +758,8 @@ fn write_prng_file_mounted<S: Storage>(
         for slot in buf[..c as usize].iter_mut() {
             *slot = (test_prng(&mut prng) & 0xff) as u8;
         }
-        let n = littlefs_rust_core::lfs_file_write(
-            lfs,
-            caches,
-            file.as_mut_ptr(),
-            buf.as_ptr() as *const core::ffi::c_void,
-            c,
-        );
+        let n =
+            littlefs_rust_core::lfs_file_write(lfs, caches, file.as_mut_ptr(), &buf[..c as usize]);
         assert_eq!(n, c as i32, "short write at offset {i}");
         i += c;
     }
@@ -799,13 +788,7 @@ fn read_file_mounted<S: Storage>(
     let mut buf = Vec::new();
     let mut chunk = [0u8; 256];
     loop {
-        let n = littlefs_rust_core::lfs_file_read(
-            lfs,
-            caches,
-            file.as_mut_ptr(),
-            chunk.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk.len() as u32,
-        );
+        let n = littlefs_rust_core::lfs_file_read(lfs, caches, file.as_mut_ptr(), &mut chunk);
         if n < 0 {
             let _ = littlefs_rust_core::lfs_file_close(lfs, caches, file.as_mut_ptr());
             return Err(n);

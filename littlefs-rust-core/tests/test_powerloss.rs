@@ -58,13 +58,7 @@ fn test_powerloss_only_rev() {
     );
     let buf = b"hello";
     for i in 0..5 {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_ptr() as *const core::ffi::c_void,
-            buf.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf);
         assert!(n == buf.len() as i32);
         assert_ok_at(
             &format!("file_sync #{} (first loop)", i + 1),
@@ -89,13 +83,7 @@ fn test_powerloss_only_rev() {
     );
     let mut rbuf = [0u8; 256];
     for _ in 0..5 {
-        let n = lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            rbuf.as_mut_ptr() as *mut core::ffi::c_void,
-            5,
-        );
+        let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut rbuf[..5]);
         assert_eq!(n, 5);
         assert_eq!(&rbuf[..5], b"hello");
     }
@@ -145,13 +133,7 @@ fn test_powerloss_only_rev() {
         ),
     );
     for _ in 0..5 {
-        let n = lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            rbuf.as_mut_ptr() as *mut core::ffi::c_void,
-            5,
-        );
+        let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut rbuf[..5]);
         assert_eq!(n, 5);
         assert_eq!(&rbuf[..5], b"hello");
     }
@@ -173,13 +155,7 @@ fn test_powerloss_only_rev() {
     );
     let buf2 = b"goodbye";
     for i in 0..5 {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf2.as_ptr() as *const core::ffi::c_void,
-            buf2.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf2);
         assert!(n == buf2.len() as i32);
         assert_ok_at(
             &format!("file_sync #{} (after corrupt)", i + 1),
@@ -203,24 +179,12 @@ fn test_powerloss_only_rev() {
         ),
     );
     for _ in 0..5 {
-        let n = lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            rbuf.as_mut_ptr() as *mut core::ffi::c_void,
-            5,
-        );
+        let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut rbuf[..5]);
         assert_eq!(n, 5);
         assert_eq!(&rbuf[..5], b"hello");
     }
     for _ in 0..5 {
-        let n = lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            rbuf.as_mut_ptr() as *mut core::ffi::c_void,
-            7,
-        );
+        let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut rbuf[..7]);
         assert_eq!(n, 7);
         assert_eq!(&rbuf[..7], b"goodbye");
     }
@@ -416,13 +380,7 @@ fn test_debug_file_root_single_write_sync() {
         ),
     );
     let buf = b"hello";
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_ptr() as *const core::ffi::c_void,
-        buf.len() as u32,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf);
     assert_eq!(n, buf.len() as i32);
     assert_ok_at(
         "file_sync",
@@ -467,13 +425,7 @@ fn test_debug_file_root_repeated_write_sync() {
     );
     let buf = b"hello";
     for i in 0..5 {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_ptr() as *const core::ffi::c_void,
-            buf.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf);
         assert_eq!(n, buf.len() as i32);
         assert_ok_at(
             &format!("file_sync #{}", i + 1),
@@ -525,13 +477,7 @@ fn test_debug_file_subdir_which_sync_fails() {
     );
     let buf = b"hello";
     for i in 0..5 {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_ptr() as *const core::ffi::c_void,
-            buf.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf);
         assert_eq!(n, buf.len() as i32);
         let err = lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr());
         assert_ok_at(&format!("file_sync #{}", i + 1), err);
@@ -581,13 +527,7 @@ fn test_debug_powerloss_after_corrupt_append() {
     );
     let buf = b"hello";
     for i in 0..5 {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_ptr() as *const core::ffi::c_void,
-            buf.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf);
         assert_eq!(n, buf.len() as i32);
         assert_ok_at(
             &format!("file_sync #{}", i + 1),
@@ -638,13 +578,7 @@ fn test_debug_powerloss_after_corrupt_append() {
     );
     let buf2 = b"goodbye";
     for i in 0..5 {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf2.as_ptr() as *const core::ffi::c_void,
-            buf2.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf2);
         assert_eq!(n, buf2.len() as i32);
         assert_ok_at(
             &format!("file_sync #{} (after corrupt)", i + 1),
@@ -841,13 +775,7 @@ fn test_debug_file_subdir_single_write_sync() {
         ),
     );
     let buf = b"hello";
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_ptr() as *const core::ffi::c_void,
-        buf.len() as u32,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf);
     assert_eq!(n, buf.len() as i32);
     assert_ok_at(
         "file_sync",

@@ -81,8 +81,7 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            HAIR.as_ptr() as *const core::ffi::c_void,
-            chunk,
+            &HAIR[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         j += chunk;
@@ -139,8 +138,7 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
+            &mut buf[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
@@ -150,8 +148,7 @@ fn test_truncate_simple(#[case] medium: u32, #[case] large: u32) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        size,
+        &mut buf[..size as usize],
     );
     assert_eq!(n, 0);
 
@@ -203,8 +200,7 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            HAIR.as_ptr() as *const core::ffi::c_void,
-            chunk,
+            &HAIR[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         j += chunk;
@@ -244,8 +240,7 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
+            &mut buf[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
@@ -255,8 +250,7 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        size,
+        &mut buf[..size as usize],
     );
     assert_eq!(n, 0);
 
@@ -284,8 +278,7 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
+            &mut buf[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
@@ -295,8 +288,7 @@ fn test_truncate_read(#[case] medium: u32, #[case] large: u32) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        size,
+        &mut buf[..size as usize],
     );
     assert_eq!(n, 0);
 
@@ -344,13 +336,7 @@ fn test_truncate_write_read() {
         wb[j as usize] = j as u8;
     }
 
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        wb.as_ptr() as *const core::ffi::c_void,
-        size,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &wb);
     assert_eq!(n, size as i32);
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), size as i32);
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), size as i32);
@@ -375,8 +361,7 @@ fn test_truncate_write_read() {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        rb.as_mut_ptr() as *mut core::ffi::c_void,
-        size,
+        &mut rb[..size as usize],
     );
     assert_eq!(n, trunc as i32);
     assert_eq!(&rb[..trunc as usize], &wb[..trunc as usize]);
@@ -408,8 +393,7 @@ fn test_truncate_write_read() {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        rb.as_mut_ptr() as *mut core::ffi::c_void,
-        size,
+        &mut rb[..size as usize],
     );
     assert_eq!(n, (trunc2 - qsize) as i32);
     assert_eq!(
@@ -461,8 +445,7 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            HAIR.as_ptr() as *const core::ffi::c_void,
-            chunk,
+            &HAIR[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         j += chunk;
@@ -501,8 +484,7 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            BALD.as_ptr() as *const core::ffi::c_void,
-            chunk,
+            &BALD[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         j += chunk;
@@ -534,8 +516,7 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
+            &mut buf[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &BALD[..chunk as usize]);
@@ -545,8 +526,7 @@ fn test_truncate_write(#[case] medium: u32, #[case] large: u32) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        BALD.len() as u32,
+        &mut buf[..BALD.len()],
     );
     assert_eq!(n, 0);
 
@@ -623,8 +603,7 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                                 lfs,
                                 caches,
                                 file.as_mut_ptr(),
-                                buf.as_mut_ptr() as *mut core::ffi::c_void,
-                                chunk,
+                                &mut buf[..chunk as usize],
                             );
                             if n != chunk as i32 {
                                 return Err(-1);
@@ -664,8 +643,7 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                         lfs,
                         caches,
                         file.as_mut_ptr(),
-                        HAIR.as_ptr() as *const core::ffi::c_void,
-                        chunk,
+                        &HAIR[..chunk as usize],
                     );
                     if n < 0 {
                         return Err(n);
@@ -700,8 +678,7 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                         lfs,
                         caches,
                         file.as_mut_ptr(),
-                        BALD.as_ptr() as *const core::ffi::c_void,
-                        chunk,
+                        &BALD[..chunk as usize],
                     );
                     if n < 0 {
                         return Err(n);
@@ -739,8 +716,7 @@ fn test_truncate_reentrant_write(#[case] small_size: u32) {
                         lfs,
                         caches,
                         file.as_mut_ptr(),
-                        COMB.as_ptr() as *const core::ffi::c_void,
-                        chunk,
+                        &COMB[..chunk as usize],
                     );
                     if n < 0 {
                         return Err(n);
@@ -854,8 +830,7 @@ fn test_truncate_aggressive() {
                     &mut lfs,
                     &mut caches,
                     file.as_mut_ptr(),
-                    HAIR.as_ptr() as *const core::ffi::c_void,
-                    chunk,
+                    &HAIR[..chunk as usize],
                 );
                 assert_eq!(n, chunk as i32);
                 j += chunk;
@@ -924,8 +899,7 @@ fn test_truncate_aggressive() {
                     &mut lfs,
                     &mut caches,
                     file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    chunk2,
+                    &mut buf[..chunk2 as usize],
                 );
                 assert_eq!(n, chunk2 as i32);
                 assert_eq!(&buf[..chunk2 as usize], &HAIR[..chunk2 as usize]);
@@ -937,8 +911,7 @@ fn test_truncate_aggressive() {
                     &mut lfs,
                     &mut caches,
                     file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    chunk,
+                    &mut buf[..chunk as usize],
                 );
                 assert_eq!(n, chunk as i32);
                 assert!(
@@ -994,8 +967,7 @@ fn test_truncate_aggressive() {
                     &mut lfs,
                     &mut caches,
                     file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    chunk,
+                    &mut buf[..chunk as usize],
                 );
                 assert_eq!(n, chunk as i32);
                 assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
@@ -1007,8 +979,7 @@ fn test_truncate_aggressive() {
                     &mut lfs,
                     &mut caches,
                     file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    chunk,
+                    &mut buf[..chunk as usize],
                 );
                 assert_eq!(n, chunk as i32);
                 assert!(
@@ -1072,8 +1043,7 @@ fn test_truncate_nop(#[case] medium: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            HAIR.as_ptr() as *const core::ffi::c_void,
-            chunk,
+            &HAIR[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         assert_ok(lfs_file_truncate(
@@ -1106,8 +1076,7 @@ fn test_truncate_nop(#[case] medium: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
+            &mut buf[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
@@ -1117,8 +1086,7 @@ fn test_truncate_nop(#[case] medium: u32) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        size,
+        &mut buf[..size as usize],
     );
     assert_eq!(n, 0);
 
@@ -1146,8 +1114,7 @@ fn test_truncate_nop(#[case] medium: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
+            &mut buf[..chunk as usize],
         );
         assert_eq!(n, chunk as i32);
         assert_eq!(&buf[..chunk as usize], &HAIR[..chunk as usize]);
@@ -1157,8 +1124,7 @@ fn test_truncate_nop(#[case] medium: u32) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        size,
+        &mut buf[..size as usize],
     );
     assert_eq!(n, 0);
 

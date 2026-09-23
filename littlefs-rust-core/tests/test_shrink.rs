@@ -110,17 +110,11 @@ unsafe fn shrink_full(block_count: u32, after_block_count: u32, files_count: u32
             LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
         ));
 
-        let mut wbuffer = vec![b'b'; BLOCK_SIZE as usize];
+        let mut wbuffer = vec![b'b'; size as usize];
         let header = format!("Hi {:03}", i);
         wbuffer[..header.len()].copy_from_slice(header.as_bytes());
 
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            wbuffer.as_ptr() as *const core::ffi::c_void,
-            size,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &wbuffer);
         assert_eq!(n, size as i32);
         assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
     }
@@ -140,13 +134,7 @@ unsafe fn shrink_full(block_count: u32, after_block_count: u32, files_count: u32
             ));
 
             let mut rbuffer = vec![0u8; size as usize];
-            let n = lfs_file_read(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                rbuffer.as_mut_ptr() as *mut core::ffi::c_void,
-                BLOCK_SIZE,
-            );
+            let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut rbuffer);
             assert_eq!(n, size as i32);
             assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
@@ -189,13 +177,7 @@ unsafe fn shrink_full(block_count: u32, after_block_count: u32, files_count: u32
             ));
 
             let mut rbuffer = vec![0u8; size as usize];
-            let n = lfs_file_read(
-                &mut lfs2,
-                &mut caches2,
-                file.as_mut_ptr(),
-                rbuffer.as_mut_ptr() as *mut core::ffi::c_void,
-                BLOCK_SIZE,
-            );
+            let n = lfs_file_read(&mut lfs2, &mut caches2, file.as_mut_ptr(), &mut rbuffer);
             assert_eq!(n, size as i32);
             assert_ok(lfs_file_close(&mut lfs2, &mut caches2, file.as_mut_ptr()));
 

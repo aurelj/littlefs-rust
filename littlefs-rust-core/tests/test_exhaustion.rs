@@ -58,14 +58,8 @@ fn run_exhaustion<S: Storage>(
             ));
 
             for _ in 0..size {
-                let c = b'a' + (test_prng(&mut prng) % 26) as u8;
-                let res = lfs_file_write(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    &c as *const u8 as *const core::ffi::c_void,
-                    1,
-                );
+                let c = [b'a' + (test_prng(&mut prng) % 26) as u8];
+                let res = lfs_file_write(lfs, caches, file.as_mut_ptr(), &c);
                 assert!(
                     res == 1 || res == LFS_ERR_NOSPC,
                     "write returned {res} at cycle={cycle} file={i}"
@@ -105,16 +99,10 @@ fn run_exhaustion<S: Storage>(
 
             for _ in 0..size {
                 let expected = b'a' + (test_prng(&mut prng) % 26) as u8;
-                let mut r: u8 = 0;
-                let n = lfs_file_read(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    &mut r as *mut u8 as *mut core::ffi::c_void,
-                    1,
-                );
+                let mut r = [0u8];
+                let n = lfs_file_read(lfs, caches, file.as_mut_ptr(), &mut r);
                 assert_eq!(n, 1);
-                assert_eq!(r, expected);
+                assert_eq!(r[0], expected);
             }
 
             assert_ok(lfs_file_close(lfs, caches, file.as_mut_ptr()));
@@ -276,14 +264,8 @@ fn run_exhaustion_root<S: Storage>(
             ));
 
             for _ in 0..size {
-                let c = b'a' + (test_prng(&mut prng) % 26) as u8;
-                let res = lfs_file_write(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    &c as *const u8 as *const core::ffi::c_void,
-                    1,
-                );
+                let c = [b'a' + (test_prng(&mut prng) % 26) as u8];
+                let res = lfs_file_write(lfs, caches, file.as_mut_ptr(), &c);
                 assert!(res == 1 || res == LFS_ERR_NOSPC);
                 if res == LFS_ERR_NOSPC {
                     let err = lfs_file_close(lfs, caches, file.as_mut_ptr());
@@ -317,16 +299,10 @@ fn run_exhaustion_root<S: Storage>(
 
             for _ in 0..size {
                 let expected = b'a' + (test_prng(&mut prng) % 26) as u8;
-                let mut r: u8 = 0;
-                let n = lfs_file_read(
-                    lfs,
-                    caches,
-                    file.as_mut_ptr(),
-                    &mut r as *mut u8 as *mut core::ffi::c_void,
-                    1,
-                );
+                let mut r = [0u8];
+                let n = lfs_file_read(lfs, caches, file.as_mut_ptr(), &mut r);
                 assert_eq!(n, 1);
-                assert_eq!(r, expected);
+                assert_eq!(r[0], expected);
             }
 
             assert_ok(lfs_file_close(lfs, caches, file.as_mut_ptr()));
@@ -566,14 +542,8 @@ fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: 
             ));
 
             for _ in 0..size {
-                let c = b'a' + (test_prng(&mut prng) % 26) as u8;
-                let res = lfs_file_write(
-                    &mut lfs,
-                    &mut caches,
-                    file.as_mut_ptr(),
-                    &c as *const u8 as *const core::ffi::c_void,
-                    1,
-                );
+                let c = [b'a' + (test_prng(&mut prng) % 26) as u8];
+                let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &c);
                 assert!(res == 1 || res == LFS_ERR_NOSPC);
                 if res == LFS_ERR_NOSPC {
                     let err = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
@@ -607,16 +577,10 @@ fn test_exhaustion_wear_distribution(#[values(5, 4, 3, 2, 1)] block_cycles_val: 
 
             for _ in 0..size {
                 let expected = b'a' + (test_prng(&mut prng) % 26) as u8;
-                let mut r: u8 = 0;
-                let n = lfs_file_read(
-                    &mut lfs,
-                    &mut caches,
-                    file.as_mut_ptr(),
-                    &mut r as *mut u8 as *mut core::ffi::c_void,
-                    1,
-                );
+                let mut r = [0u8];
+                let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut r);
                 assert_eq!(n, 1);
-                assert_eq!(r, expected);
+                assert_eq!(r[0], expected);
             }
 
             assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));

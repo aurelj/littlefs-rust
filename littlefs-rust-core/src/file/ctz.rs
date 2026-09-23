@@ -180,21 +180,12 @@ pub fn lfs_ctz_find<S: Storage>(
                 lfs_ctz(current as u32),
             );
 
-            let mut head_buf: u32 = 0;
-            let err = lfs_bd_read(
-                lfs,
-                pcache,
-                rcache,
-                4,
-                head_val,
-                4 * skip,
-                &mut head_buf as *mut u32 as *mut u8,
-                4,
-            );
+            let mut head_buf = [0u8; 4];
+            let err = lfs_bd_read(lfs, pcache, rcache, 4, head_val, 4 * skip, &mut head_buf);
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
-            head_val = lfs_fromle32(head_buf);
+            head_val = u32::from_le_bytes(head_buf);
 
             current -= 1 << skip;
         }
@@ -298,7 +289,7 @@ pub fn lfs_ctz_traverse<S: Storage>(
 
             // C: count*sizeof(head) as hint
             let count = (2 - (index & 1)) as usize;
-            let mut heads = [0u32; 2];
+            let mut heads_buf = [0u8; 8];
             let read_size = (count * core::mem::size_of::<lfs_block_t>()) as u32;
             let err = lfs_bd_read(
                 lfs,
@@ -307,14 +298,15 @@ pub fn lfs_ctz_traverse<S: Storage>(
                 read_size,
                 current_head,
                 0,
-                heads.as_mut_ptr() as *mut u8,
-                read_size,
+                &mut heads_buf[..read_size as usize],
             );
             if err != 0 {
                 return crate::lfs_pass_err!(err);
             }
-            heads[0] = lfs_fromle32(heads[0]);
-            heads[1] = lfs_fromle32(heads[1]);
+            let heads = [
+                u32::from_le_bytes([heads_buf[0], heads_buf[1], heads_buf[2], heads_buf[3]]),
+                u32::from_le_bytes([heads_buf[4], heads_buf[5], heads_buf[6], heads_buf[7]]),
+            ];
 
             #[allow(clippy::needless_range_loop)] // Rule 2: preserve C loop structure
             for i in 0..count - 1 {
@@ -483,22 +475,13 @@ pub fn lfs_ctz_extend<S: Storage>(
 
             if noff != block_size {
                 for i in 0..noff {
-                    let mut data: u8 = 0;
-                    let err = lfs_bd_read(
-                        lfs,
-                        None,
-                        &mut caches.rcache,
-                        noff - i,
-                        head,
-                        i,
-                        &mut data,
-                        1,
-                    );
+                    let mut data = [0u8];
+                    let err =
+                        lfs_bd_read(lfs, None, &mut caches.rcache, noff - i, head, i, &mut data);
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
-                    let err =
-                        lfs_bd_prog(lfs, pcache, &mut caches.rcache, true, nblock, i, &data, 1);
+                    let err = lfs_bd_prog(lfs, pcache, &mut caches.rcache, true, nblock, i, &data);
                     if err != 0 {
                         if err == LFS_ERR_CORRUPT {
                             lfs_alloc_lookahead(lfs, nblock);
@@ -517,7 +500,7 @@ pub fn lfs_ctz_extend<S: Storage>(
             let skips = lfs_ctz(index as u32) + 1;
             let mut nhead = head;
             for i in 0..skips {
-                let nhead_le = lfs_tole32(nhead);
+                let nhead_le = nhead.to_le_bytes();
                 let err = lfs_bd_prog(
                     lfs,
                     pcache,
@@ -525,8 +508,7 @@ pub fn lfs_ctz_extend<S: Storage>(
                     true,
                     nblock,
                     4 * i,
-                    &nhead_le as *const u32 as *const u8,
-                    4,
+                    &nhead_le,
                 );
                 if err != 0 {
                     if err == LFS_ERR_CORRUPT {
@@ -536,10 +518,9 @@ pub fn lfs_ctz_extend<S: Storage>(
                     }
                     return crate::lfs_pass_err!(err);
                 }
-                nhead = lfs_fromle32(nhead_le);
 
                 if i != skips - 1 {
-                    let mut nhead_buf: u32 = 0;
+                    let mut nhead_buf = [0u8; 4];
                     let err = lfs_bd_read(
                         lfs,
                         None,
@@ -547,13 +528,12 @@ pub fn lfs_ctz_extend<S: Storage>(
                         4,
                         nhead,
                         4 * i,
-                        &mut nhead_buf as *mut u32 as *mut u8,
-                        4,
+                        &mut nhead_buf,
                     );
                     if err != 0 {
                         return crate::lfs_pass_err!(err);
                     }
-                    nhead = lfs_fromle32(nhead_buf);
+                    nhead = u32::from_le_bytes(nhead_buf);
                 }
             }
 

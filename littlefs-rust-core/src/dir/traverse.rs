@@ -125,7 +125,7 @@ pub fn lfs_dir_getslice<S: Storage>(
             }
             off -= lfs_tag_dsize(ntag);
             let tag = ntag;
-            let mut ntag_buf: lfs_tag_t = 0;
+            let mut ntag_buf = [0u8; 4];
             let err = lfs_bd_read(
                 lfs,
                 None,
@@ -133,13 +133,12 @@ pub fn lfs_dir_getslice<S: Storage>(
                 4,
                 dir_ref.pair[0],
                 off,
-                &mut ntag_buf as *mut _ as *mut u8,
-                4,
+                &mut ntag_buf,
             );
             if err != 0 {
                 return err as lfs_stag_t;
             }
-            ntag = (lfs_frombe32(ntag_buf) ^ tag) & 0x7fff_ffff;
+            ntag = (u32::from_be_bytes(ntag_buf) ^ tag) & 0x7fff_ffff;
 
             if lfs_tag_id(gmask) != 0
                 && u32::from(lfs_tag_type1(tag)) == crate::lfs_type::lfs_type::LFS_TYPE_SPLICE
@@ -160,6 +159,7 @@ pub fn lfs_dir_getslice<S: Storage>(
                     return crate::error::LFS_ERR_NOENT;
                 }
                 let diff = lfs_min(lfs_tag_size(tag), gsize);
+                let buf = core::slice::from_raw_parts_mut(gbuffer as *mut u8, diff as usize);
                 let err = lfs_bd_read(
                     lfs,
                     None,
@@ -167,8 +167,7 @@ pub fn lfs_dir_getslice<S: Storage>(
                     diff,
                     dir_ref.pair[0],
                     off + 4 + goff,
-                    gbuffer as *mut u8,
-                    diff,
+                    buf,
                 );
                 if err != 0 {
                     return err as lfs_stag_t;
@@ -798,7 +797,7 @@ pub fn lfs_dir_traverse<S: Storage>(
                         );
                         // Per C: advance off first to skip previous tag's data, then read
                         off += lfs_tag_dsize(ptag);
-                        let mut tag_raw: lfs_tag_t = 0;
+                        let mut tag_raw = [0u8; 4];
                         let err = lfs_bd_read(
                             lfs,
                             None,
@@ -806,13 +805,12 @@ pub fn lfs_dir_traverse<S: Storage>(
                             core::mem::size_of::<lfs_tag_t>() as u32,
                             dir_ref.pair[0],
                             off,
-                            &mut tag_raw as *mut _ as *mut u8,
-                            core::mem::size_of::<lfs_tag_t>() as u32,
+                            &mut tag_raw,
                         );
                         if err != 0 {
                             return crate::lfs_pass_err!(err);
                         }
-                        let tag_val = (lfs_frombe32(tag_raw) ^ ptag) | 0x8000_0000;
+                        let tag_val = (u32::from_be_bytes(tag_raw) ^ ptag) | 0x8000_0000;
                         disk = crate::tag::lfs_diskoff {
                             block: dir_ref.pair[0],
                             off: off + 4,

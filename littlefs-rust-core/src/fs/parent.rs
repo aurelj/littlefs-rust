@@ -139,7 +139,7 @@ fn lfs_fs_parent_match<S: Storage>(
     use crate::bd::bd::lfs_bd_read;
     use crate::util::{lfs_pair_cmp, lfs_pair_fromle32};
 
-    let mut child: [crate::types::lfs_block_t; 2] = [0, 0];
+    let mut child_buf = [0u8; 8];
     let err = lfs_bd_read(
         lfs,
         None,
@@ -147,13 +147,15 @@ fn lfs_fs_parent_match<S: Storage>(
         unsafe { lfs.cfg.as_ref() }.expect("cfg").block_size,
         disk.block,
         disk.off,
-        child.as_mut_ptr() as *mut u8,
-        8,
+        &mut child_buf,
     );
     if err != 0 {
         return crate::lfs_pass_err!(err);
     }
-    lfs_pair_fromle32(&mut child);
+    let child = [
+        u32::from_le_bytes([child_buf[0], child_buf[1], child_buf[2], child_buf[3]]),
+        u32::from_le_bytes([child_buf[4], child_buf[5], child_buf[6], child_buf[7]]),
+    ];
     if lfs_pair_cmp(&child, &find.pair) == 0 {
         LFS_CMP_EQ
     } else {

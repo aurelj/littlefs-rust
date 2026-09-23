@@ -156,10 +156,9 @@ pub fn lfs_getattr<S: Storage>(
     caches: &mut LfsCaches,
     path: *const u8,
     r#type: u8,
-    buffer: *mut c_void,
-    size: lfs_size_t,
+    buffer: &mut [u8],
 ) -> lfs_ssize_t {
-    crate::fs::attr::lfs_getattr_(lfs, caches, path, r#type, buffer, size)
+    crate::fs::attr::lfs_getattr_(lfs, caches, path, r#type, buffer)
 }
 
 /// Set custom attributes. Per lfs.h lfs_setattr (lfs.c:6471-6475).
@@ -169,10 +168,9 @@ pub fn lfs_setattr<S: Storage>(
     caches: &mut LfsCaches,
     path: *const u8,
     r#type: u8,
-    buffer: *const c_void,
-    size: lfs_size_t,
+    buffer: &[u8],
 ) -> i32 {
-    crate::fs::attr::lfs_setattr_(lfs, caches, path, r#type, buffer, size)
+    crate::fs::attr::lfs_setattr_(lfs, caches, path, r#type, buffer)
 }
 
 /// Remove a custom attribute. Per lfs.h lfs_removeattr (lfs.c:6487-6491).
@@ -237,10 +235,9 @@ pub fn lfs_file_read<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
-    buffer: *mut c_void,
-    size: lfs_size_t,
+    buffer: &mut [u8],
 ) -> lfs_ssize_t {
-    crate::file::ops::lfs_file_read_(lfs, caches, file, buffer, size)
+    crate::file::ops::lfs_file_read_(lfs, caches, file, buffer)
 }
 
 /// Write data to file. Per lfs.h lfs_file_write (lfs.c:6228-6242).
@@ -249,10 +246,9 @@ pub fn lfs_file_write<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut LfsCaches,
     file: *mut LfsFile,
-    buffer: *const c_void,
-    size: lfs_size_t,
+    buffer: &[u8],
 ) -> lfs_ssize_t {
-    crate::file::ops::lfs_file_write_(lfs, caches, file, buffer, size)
+    crate::file::ops::lfs_file_write_(lfs, caches, file, buffer)
 }
 
 /// Change the position of the file. Per lfs.h lfs_file_seek (lfs.c:6246-6260).

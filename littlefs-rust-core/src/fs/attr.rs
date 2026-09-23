@@ -57,8 +57,7 @@ pub fn lfs_getattr_<S: Storage>(
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
-    buffer: *mut core::ffi::c_void,
-    size: lfs_size_t,
+    buffer: &mut [u8],
 ) -> lfs_ssize_t {
     if path.is_null() {
         return crate::lfs_err!(LFS_ERR_INVAL);
@@ -94,9 +93,16 @@ pub fn lfs_getattr_<S: Storage>(
         let gtag = lfs_mktag(
             LFS_TYPE_USERATTR + r#type as u32,
             id as u32,
-            lfs_min(size, lfs.attr_max),
+            lfs_min(buffer.len() as u32, lfs.attr_max),
         );
-        tag = lfs_dir_get(lfs, caches, &cwd, lfs_mktag(0x7ff, 0x3ff, 0), gtag, buffer);
+        tag = lfs_dir_get(
+            lfs,
+            caches,
+            &cwd,
+            lfs_mktag(0x7ff, 0x3ff, 0),
+            gtag,
+            buffer.as_mut_ptr() as *mut core::ffi::c_void,
+        );
         if tag < 0 {
             if tag == LFS_ERR_NOENT {
                 return crate::lfs_err!(LFS_ERR_NOATTR);
@@ -137,7 +143,7 @@ pub fn lfs_getattr_<S: Storage>(
 /// }
 /// #endif
 /// ```
-pub fn lfs_commitattr<S: Storage>(
+fn lfs_commitattr<S: Storage>(
     lfs: &mut Lfs<S>,
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
@@ -205,14 +211,20 @@ pub fn lfs_setattr_<S: Storage>(
     caches: &mut crate::fs::LfsCaches,
     path: *const u8,
     r#type: u8,
-    buffer: *const core::ffi::c_void,
-    size: lfs_size_t,
+    buffer: &[u8],
 ) -> i32 {
     unsafe {
-        if size > lfs.attr_max {
+        if buffer.len() as u32 > lfs.attr_max {
             return crate::lfs_err!(LFS_ERR_NOSPC);
         }
-        lfs_commitattr(lfs, caches, path, r#type, buffer, size)
+        lfs_commitattr(
+            lfs,
+            caches,
+            path,
+            r#type,
+            buffer.as_ptr() as *const core::ffi::c_void,
+            buffer.len() as lfs_size_t,
+        )
     }
 }
 

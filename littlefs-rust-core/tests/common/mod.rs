@@ -584,13 +584,7 @@ pub fn fs_with_hello(env: &mut TestEnv) -> Result<(), i32> {
         let _ = lfs_unmount(&mut lfs);
         return Err(err);
     }
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        data.as_ptr() as *const core::ffi::c_void,
-        data.len() as u32,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
     if n != data.len() as i32 {
         let _ = lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr());
         let _ = lfs_unmount(&mut lfs);
@@ -1008,13 +1002,7 @@ pub fn write_prng_file<S: Storage>(
         for slot in buffer[..chunk as usize].iter_mut() {
             *slot = (test_prng(&mut prng) & 0xff) as u8;
         }
-        let n = littlefs_rust_core::lfs_file_write(
-            lfs,
-            caches,
-            file,
-            buffer.as_ptr() as *const core::ffi::c_void,
-            chunk,
-        );
+        let n = littlefs_rust_core::lfs_file_write(lfs, caches, file, &buffer[..chunk as usize]);
         assert_eq!(
             n, chunk as i32,
             "write_prng_file: expected {} bytes written at offset {}, got {}",
@@ -1043,13 +1031,7 @@ pub fn write_prng_file_result<S: Storage>(
         for slot in buffer[..chunk as usize].iter_mut() {
             *slot = (test_prng(&mut prng) & 0xff) as u8;
         }
-        let n = littlefs_rust_core::lfs_file_write(
-            lfs,
-            caches,
-            file,
-            buffer.as_ptr() as *const core::ffi::c_void,
-            chunk,
-        );
+        let n = littlefs_rust_core::lfs_file_write(lfs, caches, file, &buffer[..chunk as usize]);
         if n < 0 {
             return Err(n);
         }
@@ -1088,13 +1070,7 @@ pub fn verify_prng_file<S: Storage>(
     let mut i: u32 = 0;
     while i < size {
         let chunk = core::cmp::min(chunk_size, size - i);
-        let n = littlefs_rust_core::lfs_file_read(
-            lfs,
-            caches,
-            file,
-            buffer.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
-        );
+        let n = littlefs_rust_core::lfs_file_read(lfs, caches, file, &mut buffer[..chunk as usize]);
         assert_eq!(
             n, chunk as i32,
             "verify_prng_file: expected {} bytes read at offset {}, got {}",
@@ -1126,13 +1102,7 @@ pub fn verify_prng_file_with_state<S: Storage>(
     let mut i: u32 = 0;
     while i < size {
         let chunk = core::cmp::min(chunk_size, size - i);
-        let n = littlefs_rust_core::lfs_file_read(
-            lfs,
-            caches,
-            file,
-            buffer.as_mut_ptr() as *mut core::ffi::c_void,
-            chunk,
-        );
+        let n = littlefs_rust_core::lfs_file_read(lfs, caches, file, &mut buffer[..chunk as usize]);
         assert_eq!(
             n, chunk as i32,
             "verify_prng_file_with_state: expected {} bytes read at offset {}, got {}",

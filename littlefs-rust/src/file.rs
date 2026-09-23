@@ -74,8 +74,7 @@ impl<'a, S: Storage> File<'a, S> {
             &mut inner.lfs,
             &mut inner.caches,
             self.alloc.file.as_ptr() as *mut LfsFile,
-            buf.as_mut_ptr() as *mut c_void,
-            buf.len() as u32,
+            buf,
         );
         from_lfs_size(rc)
     }
@@ -87,8 +86,7 @@ impl<'a, S: Storage> File<'a, S> {
             &mut inner.lfs,
             &mut inner.caches,
             self.alloc.file.as_ptr() as *mut LfsFile,
-            data.as_ptr() as *const c_void,
-            data.len() as u32,
+            data,
         );
         from_lfs_size(rc)
     }

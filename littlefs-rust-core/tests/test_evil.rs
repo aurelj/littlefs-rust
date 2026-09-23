@@ -312,13 +312,7 @@ unsafe fn evil_invalid_file_pointer(size: u32) {
     ));
     assert_err(
         LFS_ERR_CORRUPT,
-        lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buffer.as_mut_ptr() as *mut core::ffi::c_void,
-            size,
-        ),
+        lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buffer),
     );
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
@@ -367,14 +361,7 @@ unsafe fn evil_invalid_ctz_pointer(size: u32) {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in 0..size {
-        let c: u8 = b'c';
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            &c as *const u8 as *const core::ffi::c_void,
-            1,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"c");
         assert_eq!(n, 1);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -459,8 +446,7 @@ unsafe fn evil_invalid_ctz_pointer(size: u32) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buffer.as_mut_ptr() as *mut core::ffi::c_void,
-            size,
+            &mut buffer[..size as usize],
         ),
     );
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));

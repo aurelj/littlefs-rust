@@ -59,13 +59,7 @@ fn test_files_simple(#[values(0, -1, 8)] inline_max: i32) {
         path.as_ptr(),
         LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
     ));
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        data.as_ptr() as *const core::ffi::c_void,
-        data.len() as u32,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
     assert_eq!(n, data.len() as i32);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
     assert_ok(lfs_unmount(&mut lfs));
@@ -84,13 +78,7 @@ fn test_files_simple(#[values(0, -1, 8)] inline_max: i32) {
         LFS_O_RDONLY,
     ));
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        32,
-    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..32]);
     assert_eq!(n, data.len() as i32);
     assert_eq!(&buf[..n as usize], data);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -175,8 +163,7 @@ fn test_files_large(
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        chunk_size,
+        &mut buf[..chunk_size as usize],
     );
     assert_eq!(n, 0);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -328,8 +315,7 @@ fn test_files_rewrite(
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        chunk_size,
+        &mut buf[..chunk_size as usize],
     );
     assert_eq!(n, 0);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -552,8 +538,7 @@ fn test_files_truncate(
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        chunk_size,
+        &mut buf[..chunk_size as usize],
     );
     assert_eq!(n, 0);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -764,8 +749,7 @@ fn test_files_reentrant_write_sync(
                         lfs,
                         caches,
                         file.as_mut_ptr(),
-                        buf.as_mut_ptr() as *mut core::ffi::c_void,
-                        chunk as u32,
+                        &mut buf[..chunk],
                     );
                     assert_eq!(n, chunk as i32);
                     for slot in buf[..chunk].iter() {
@@ -807,8 +791,7 @@ fn test_files_reentrant_write_sync(
                     lfs,
                     caches,
                     file.as_mut_ptr(),
-                    buf.as_ptr() as *const core::ffi::c_void,
-                    chunk,
+                    &buf[..chunk as usize],
                 );
                 if n < 0 {
                     return Err(n);
@@ -901,13 +884,7 @@ fn test_files_many() {
         let content = format!("Hi {:03}\0", i);
         let bytes = content.as_bytes();
         assert_eq!(bytes.len(), 7);
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            bytes.as_ptr() as *const core::ffi::c_void,
-            bytes.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), bytes);
         assert_eq!(n, bytes.len() as i32);
         assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
@@ -920,13 +897,7 @@ fn test_files_many() {
             LFS_O_RDONLY,
         ));
         let mut buf = [0u8; 32];
-        let n = lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            rfile.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            7,
-        );
+        let n = lfs_file_read(&mut lfs, &mut caches, rfile.as_mut_ptr(), &mut buf[..7]);
         assert_eq!(n, 7);
         assert_eq!(&buf[..7], bytes);
         assert_ok(lfs_file_close(&mut lfs, &mut caches, rfile.as_mut_ptr()));
@@ -970,13 +941,7 @@ fn test_files_many_power_cycle() {
         let content = format!("Hi {:03}\0", i);
         let bytes = content.as_bytes();
         assert_eq!(bytes.len(), 7);
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            bytes.as_ptr() as *const core::ffi::c_void,
-            bytes.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), bytes);
         assert_eq!(n, bytes.len() as i32);
         assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
         assert_ok(lfs_unmount(&mut lfs));
@@ -995,13 +960,7 @@ fn test_files_many_power_cycle() {
             LFS_O_RDONLY,
         ));
         let mut buf = [0u8; 32];
-        let n = lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            rfile.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            7,
-        );
+        let n = lfs_file_read(&mut lfs, &mut caches, rfile.as_mut_ptr(), &mut buf[..7]);
         assert_eq!(n, 7);
         assert_eq!(&buf[..7], bytes);
         assert_ok(lfs_file_close(&mut lfs, &mut caches, rfile.as_mut_ptr()));
@@ -1071,13 +1030,8 @@ fn test_files_many_power_loss() {
                 assert_eq!(bytes.len(), 7);
                 let sz = littlefs_rust_core::lfs_file_size(lfs, file.as_mut_ptr());
                 if sz != bytes.len() as i32 {
-                    let n = littlefs_rust_core::lfs_file_write(
-                        lfs,
-                        caches,
-                        file.as_mut_ptr(),
-                        bytes.as_ptr() as *const core::ffi::c_void,
-                        bytes.len() as u32,
-                    );
+                    let n =
+                        littlefs_rust_core::lfs_file_write(lfs, caches, file.as_mut_ptr(), bytes);
                     if n < 0 {
                         return Err(n);
                     }
@@ -1104,8 +1058,7 @@ fn test_files_many_power_loss() {
                     lfs,
                     caches,
                     rfile.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    7,
+                    &mut buf[..7],
                 );
                 assert_eq!(n, 7);
                 assert_eq!(&buf[..7], bytes);
@@ -1156,13 +1109,7 @@ fn test_files_same_session() {
         path.as_ptr(),
         0x0100 | 2,
     ));
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        data.as_ptr() as *const core::ffi::c_void,
-        data.len() as u32,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
     assert_eq!(n, data.len() as i32);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
@@ -1176,13 +1123,7 @@ fn test_files_same_session() {
     ));
     assert_eq!(lfs_file_size(&mut lfs, file2.as_mut_ptr()), 13);
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file2.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        32,
-    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file2.as_mut_ptr(), &mut buf[..32]);
     assert_eq!(n, 13);
     assert_eq!(&buf[..13], b"Hello World!\0");
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file2.as_mut_ptr()));
@@ -1216,23 +1157,11 @@ fn test_files_simple_read() {
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 0);
 
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        32,
-    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
     assert_eq!(n, 13);
     assert_eq!(&buf[..13], b"Hello World!\0");
 
-    let n2 = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        32,
-    );
+    let n2 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
     assert_eq!(n2, 0);
 
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1264,13 +1193,7 @@ fn test_files_seek_tell() {
     ));
 
     let mut buf = [0u8; 4];
-    let n = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        4,
-    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
     assert_eq!(n, 4);
     assert_eq!(&buf[..4], b"Hell");
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 4);
@@ -1278,25 +1201,13 @@ fn test_files_seek_tell() {
     assert_ok(lfs_file_rewind(&mut lfs, &mut caches, file.as_mut_ptr()));
     assert_eq!(lfs_file_tell(&mut lfs, file.as_mut_ptr()), 0);
 
-    let n2 = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        4,
-    );
+    let n2 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
     assert_eq!(n2, 4);
     assert_eq!(&buf[..4], b"Hell");
 
     let pos = lfs_file_seek(&mut lfs, &mut caches, file.as_mut_ptr(), 6, 0);
     assert_eq!(pos, 6);
-    let n3 = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        4,
-    );
+    let n3 = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
     assert_eq!(n3, 4);
     assert_eq!(&buf[..4], b"Worl");
 
@@ -1332,13 +1243,7 @@ fn test_files_truncate_api() {
         LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
     ));
     let data = b"hello world";
-    let _ = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        data.as_ptr() as *const core::ffi::c_void,
-        data.len() as u32,
-    );
+    let _ = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data);
     assert_ok(lfs_file_truncate(
         &mut lfs,
         &mut caches,
@@ -1365,13 +1270,7 @@ fn test_files_truncate_api() {
     ));
     assert_eq!(lfs_file_size(&mut lfs, file.as_mut_ptr()), 5);
     let mut buf = [0u8; 32];
-    let n = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        32,
-    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
     assert_eq!(n, 5);
     assert_eq!(&buf[..5], b"hello");
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));

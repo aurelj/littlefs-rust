@@ -104,8 +104,7 @@ fn test_alloc_parallel(
                 &mut lfs,
                 &mut caches,
                 files[n as usize].as_mut_ptr(),
-                name.as_ptr() as *const core::ffi::c_void,
-                chunk as u32,
+                &name[..chunk],
             );
             assert_eq!(nw, chunk as i32);
         }
@@ -141,13 +140,7 @@ fn test_alloc_parallel(
         let mut buf = [0u8; 16];
         for i in (0..size).step_by(name.len()) {
             let chunk = (size - i).min(name.len());
-            let nr = lfs_file_read(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                buf.as_mut_ptr() as *mut core::ffi::c_void,
-                chunk as u32,
-            );
+            let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk]);
             assert_eq!(nr, chunk as i32);
             assert_eq!(&buf[..chunk], &name[..chunk]);
         }
@@ -231,8 +224,7 @@ fn test_alloc_serial(
                 &mut lfs,
                 &mut caches,
                 file.as_mut_ptr(),
-                buf.as_ptr() as *const core::ffi::c_void,
-                chunk as u32,
+                &buf[..chunk as usize],
             );
             assert_eq!(nw, chunk as i32);
         }
@@ -266,8 +258,7 @@ fn test_alloc_serial(
                 &mut lfs,
                 &mut caches,
                 file.as_mut_ptr(),
-                buf.as_mut_ptr() as *mut core::ffi::c_void,
-                chunk as u32,
+                &mut buf[..chunk as usize],
             );
             assert_eq!(nr, chunk as i32);
             assert_eq!(&buf[..chunk], &name[..chunk]);
@@ -345,8 +336,7 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
                     &mut lfs,
                     &mut caches,
                     files[n as usize].as_mut_ptr(),
-                    name.as_ptr() as *const core::ffi::c_void,
-                    chunk as u32,
+                    &name[..chunk],
                 );
                 assert_eq!(nw, chunk as i32);
             }
@@ -382,13 +372,7 @@ fn test_alloc_parallel_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)
             let mut buf = [0u8; 16];
             for i in (0..size).step_by(name.len()) {
                 let chunk = (size - i).min(name.len());
-                let nr = lfs_file_read(
-                    &mut lfs,
-                    &mut caches,
-                    file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    chunk as u32,
-                );
+                let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk]);
                 assert_eq!(nr, chunk as i32);
                 assert_eq!(&buf[..chunk], &name[..chunk]);
             }
@@ -480,13 +464,7 @@ fn test_alloc_serial_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] 
             buf[..name.len()].copy_from_slice(name);
             for i in (0..size).step_by(name.len()) {
                 let chunk = (size - i).min(name.len());
-                let nw = lfs_file_write(
-                    &mut lfs,
-                    &mut caches,
-                    file.as_mut_ptr(),
-                    buf.as_ptr() as *const core::ffi::c_void,
-                    chunk as u32,
-                );
+                let nw = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &buf[..chunk]);
                 assert_eq!(nw, chunk as i32);
             }
             assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -515,13 +493,7 @@ fn test_alloc_serial_reuse(#[values(1, 10)] cycles: u32, #[values(false, true)] 
             let mut buf = [0u8; 16];
             for i in (0..size).step_by(name.len()) {
                 let chunk = (size - i).min(name.len());
-                let nr = lfs_file_read(
-                    &mut lfs,
-                    &mut caches,
-                    file.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut core::ffi::c_void,
-                    chunk as u32,
-                );
+                let nr = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf[..chunk]);
                 assert_eq!(nr, chunk as i32);
                 assert_eq!(&buf[..chunk], &name[..chunk]);
             }
@@ -589,25 +561,13 @@ fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     let exhaustion = b"exhaustion";
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        exhaustion.as_ptr() as *const core::ffi::c_void,
-        exhaustion.len() as u32,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), exhaustion);
     assert_eq!(n, exhaustion.len() as i32);
     assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
 
     let blah = b"blahblahblahblah";
     loop {
-        let res = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            blah.len() as u32,
-        );
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
         if res < 0 {
             assert_err(LFS_ERR_NOSPC, res);
             break;
@@ -638,8 +598,7 @@ fn test_alloc_exhaustion(#[values(false, true)] infer_bc: bool) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        exhaustion.len() as u32,
+        &mut buf[..exhaustion.len()],
     );
     assert_eq!(n, exhaustion.len() as i32);
     assert_eq!(&buf[..exhaustion.len()], exhaustion);
@@ -682,13 +641,7 @@ fn test_alloc_split_dir() {
             path.as_ptr(),
             LFS_O_WRONLY | LFS_O_CREAT,
         ));
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            b"x".as_ptr() as *const core::ffi::c_void,
-            1,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"x");
         assert_eq!(n, 1);
         assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
     }
@@ -758,8 +711,7 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            buffering.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
+            &buffering[..chunk],
         );
         assert_eq!(n, chunk as i32);
     }
@@ -778,25 +730,13 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     let exhaustion = b"exhaustion";
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        exhaustion.as_ptr() as *const core::ffi::c_void,
-        exhaustion.len() as u32,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), exhaustion);
     assert_eq!(n, exhaustion.len() as i32);
     assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
 
     let blah = b"blahblahblahblah";
     loop {
-        let res = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            blah.len() as u32,
-        );
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
         if res < 0 {
             assert_eq!(res, littlefs_rust_core::LFS_ERR_NOSPC);
             break;
@@ -827,8 +767,7 @@ fn test_alloc_exhaustion_wraparound(#[values(false, true)] infer_bc: bool) {
         &mut lfs,
         &mut caches,
         file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        exhaustion.len() as u32,
+        &mut buf[..exhaustion.len()],
     );
     assert_eq!(n, exhaustion.len() as i32);
     assert_eq!(&buf[..exhaustion.len()], exhaustion);
@@ -887,13 +826,7 @@ fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
 
     let mut count = 0i32;
     loop {
-        let err = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            blah.len() as u32,
-        );
+        let err = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
         if err < 0 {
             assert_err(LFS_ERR_NOSPC, err);
             break;
@@ -924,13 +857,7 @@ fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in 0..count {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            blah.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
         assert_eq!(n, blah.len() as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -959,13 +886,7 @@ fn test_alloc_dir_exhaustion(#[values(false, true)] infer_bc: bool) {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in 0..(count + 1) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            blah.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
         assert_eq!(n, blah.len() as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1016,13 +937,7 @@ fn test_alloc_two_files_ctz() {
     let waka = b"waka";
     let mut filesize: usize = 0;
     loop {
-        let res = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            waka.as_ptr() as *const core::ffi::c_void,
-            waka.len() as u32,
-        );
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
         if res == LFS_ERR_NOSPC {
             break;
         }
@@ -1040,13 +955,7 @@ fn test_alloc_two_files_ctz() {
         LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
     ));
     for _ in (0..filesize).step_by(waka.len()) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            waka.as_ptr() as *const core::ffi::c_void,
-            waka.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
         assert_eq!(n, waka.len() as i32);
     }
     assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1068,13 +977,7 @@ fn test_alloc_two_files_ctz() {
     ));
     let chomp = b"chomp";
     loop {
-        let res = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            chomp.as_ptr() as *const core::ffi::c_void,
-            chomp.len() as u32,
-        );
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp);
         if res == LFS_ERR_NOSPC {
             break;
         }
@@ -1162,13 +1065,7 @@ fn test_alloc_bad_blocks_body() {
             MAX_FILL_ITER
         );
         iter += 1;
-        let res = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            waka.as_ptr() as *const core::ffi::c_void,
-            waka.len() as u32,
-        );
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
         if res == LFS_ERR_NOSPC {
             break;
         }
@@ -1187,13 +1084,7 @@ fn test_alloc_bad_blocks_body() {
         LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
     ));
     for _ in (0..filesize).step_by(waka.len()) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            waka.as_ptr() as *const core::ffi::c_void,
-            waka.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), waka);
         assert_eq!(n, waka.len() as i32);
     }
 
@@ -1233,13 +1124,7 @@ fn test_alloc_bad_blocks_body() {
             MAX_FILL_ITER
         );
         iter += 1;
-        let res = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            chomp.as_ptr() as *const core::ffi::c_void,
-            chomp.len() as u32,
-        );
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp);
         if res == LFS_ERR_CORRUPT || res == LFS_ERR_NOSPC {
             break;
         }
@@ -1265,13 +1150,7 @@ fn test_alloc_bad_blocks_body() {
             MAX_FILL_ITER
         );
         iter += 1;
-        let res = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            chomp.as_ptr() as *const core::ffi::c_void,
-            chomp.len() as u32,
-        );
+        let res = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), chomp);
         if res == LFS_ERR_NOSPC {
             break;
         }
@@ -1306,8 +1185,7 @@ fn test_alloc_bad_blocks_body() {
             &mut lfs,
             &mut caches,
             file.as_mut_ptr(),
-            rbuf.as_mut_ptr() as *mut core::ffi::c_void,
-            waka.len() as u32,
+            &mut rbuf[..waka.len()],
         );
         if n != waka.len() as i32 {
             common::dump::dump_fs(
@@ -1377,13 +1255,7 @@ fn test_alloc_chained_dir_exhaustion() {
 
     let mut count = 0i32;
     loop {
-        let err = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            blah.len() as u32,
-        );
+        let err = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
         if err < 0 {
             assert_err(LFS_ERR_NOSPC, err);
             break;
@@ -1418,13 +1290,7 @@ fn test_alloc_chained_dir_exhaustion() {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in 0..(count + 1) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            blah.len() as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), blah);
         assert_eq!(n, blah.len() as i32);
     }
     assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1507,13 +1373,7 @@ fn test_alloc_outdated_lookahead() {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in (0..size1).step_by(chunk) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
         assert_eq!(n, chunk as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1526,13 +1386,7 @@ fn test_alloc_outdated_lookahead() {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in (0..size2).step_by(chunk) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
         assert_eq!(n, chunk as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1553,13 +1407,7 @@ fn test_alloc_outdated_lookahead() {
     ));
     assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
     for _ in (0..size1).step_by(chunk) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
         assert_eq!(n, chunk as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1573,13 +1421,7 @@ fn test_alloc_outdated_lookahead() {
     ));
     assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
     for _ in (0..size2).step_by(chunk) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
         assert_eq!(n, chunk as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1629,13 +1471,7 @@ fn test_alloc_outdated_lookahead_split_dir() {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in (0..size1_full).step_by(chunk) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
         assert_eq!(n, chunk as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1648,13 +1484,7 @@ fn test_alloc_outdated_lookahead_split_dir() {
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
     for _ in (0..size2).step_by(chunk) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
         assert_eq!(n, chunk as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1675,13 +1505,7 @@ fn test_alloc_outdated_lookahead_split_dir() {
     ));
     assert_ok(lfs_file_sync(&mut lfs, &mut caches, file.as_mut_ptr()));
     for _ in (0..size1_hole).step_by(chunk) {
-        let n = lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            blah.as_ptr() as *const core::ffi::c_void,
-            chunk as u32,
-        );
+        let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), &blah[..chunk]);
         assert_eq!(n, chunk as i32);
     }
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1696,13 +1520,7 @@ fn test_alloc_outdated_lookahead_split_dir() {
         path_bytes("notasplit").as_ptr(),
         LFS_O_WRONLY | LFS_O_CREAT,
     ));
-    let n = lfs_file_write(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        b"hi".as_ptr() as *const core::ffi::c_void,
-        2,
-    );
+    let n = lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hi");
     assert_eq!(n, 2);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 

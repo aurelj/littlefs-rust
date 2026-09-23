@@ -632,13 +632,7 @@ fn test_superblocks_unknown_blocks() {
     ));
     let data = b"hello!";
     assert_eq!(
-        lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            data.as_ptr() as *const core::ffi::c_void,
-            data.len() as u32,
-        ),
+        lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), data,),
         data.len() as i32
     );
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -662,13 +656,7 @@ fn test_superblocks_unknown_blocks() {
         LFS_O_RDONLY,
     ));
     let mut buf = [0u8; 256];
-    let n = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        buf.as_mut_ptr() as *mut core::ffi::c_void,
-        buf.len() as u32,
-    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf);
     assert_eq!(n, data.len() as i32);
     assert_eq!(&buf[..data.len()], data);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -724,13 +712,7 @@ fn test_superblocks_fewer_blocks() {
             LFS_O_CREAT | LFS_O_EXCL | LFS_O_WRONLY,
         ));
         assert_eq!(
-            lfs_file_write(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                b"hello!".as_ptr() as *const core::ffi::c_void,
-                6,
-            ),
+            lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello!",),
             6
         );
         assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -751,13 +733,7 @@ fn test_superblocks_fewer_blocks() {
         ));
         let mut buf = [0u8; 16];
         assert_eq!(
-            lfs_file_read(
-                &mut lfs,
-                &mut caches,
-                file.as_mut_ptr(),
-                buf.as_mut_ptr() as *mut core::ffi::c_void,
-                buf.len() as u32,
-            ),
+            lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf,),
             6
         );
         assert_eq!(&buf[..6], b"hello!");
@@ -826,13 +802,7 @@ fn test_superblocks_grow(
     let buf = b"hello";
     assert_eq!(
         buf.len() as i32,
-        lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_ptr() as *const core::ffi::c_void,
-            buf.len() as u32,
-        )
+        lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), buf,)
     );
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
 
@@ -857,13 +827,7 @@ fn test_superblocks_grow(
         LFS_O_RDONLY,
     ));
     let mut rbuf = [0u8; 16];
-    let n = lfs_file_read(
-        &mut lfs,
-        &mut caches,
-        file.as_mut_ptr(),
-        rbuf.as_mut_ptr() as *mut core::ffi::c_void,
-        rbuf.len() as u32,
-    );
+    let n = lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut rbuf);
     assert_eq!(n, buf.len() as i32);
     assert_eq!(&rbuf[..buf.len()], buf);
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1021,13 +985,7 @@ fn test_superblocks_shrink(
         LFS_O_CREAT | LFS_O_EXCL | LFS_O_WRONLY,
     ));
     assert_eq!(
-        lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            b"hello!".as_ptr() as *const core::ffi::c_void,
-            6,
-        ),
+        lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"hello!"),
         6
     );
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -1053,13 +1011,7 @@ fn test_superblocks_shrink(
     ));
     let mut buf = [0u8; 256];
     assert_eq!(
-        lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            buf.len() as u32,
-        ),
+        lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf,),
         6
     );
     assert_eq!(&buf[..6], b"hello!");

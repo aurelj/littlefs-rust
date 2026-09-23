@@ -159,13 +159,7 @@ fn test_compat_minor_bump() {
         LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
     ));
     assert_eq!(
-        lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            b"testtest".as_ptr() as *const core::ffi::c_void,
-            8,
-        ),
+        lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"testtest",),
         8
     );
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -232,13 +226,7 @@ fn test_compat_minor_bump() {
     ));
     let mut buf = [0u8; 8];
     assert_eq!(
-        lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            8,
-        ),
+        lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf),
         8
     );
     assert_eq!(&buf, b"testtest");
@@ -267,13 +255,7 @@ fn test_compat_minor_bump() {
         LFS_O_WRONLY | LFS_O_TRUNC,
     ));
     assert_eq!(
-        lfs_file_write(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            b"teeeeest".as_ptr() as *const core::ffi::c_void,
-            8,
-        ),
+        lfs_file_write(&mut lfs, &mut caches, file.as_mut_ptr(), b"teeeeest",),
         8
     );
     assert_ok(lfs_file_close(&mut lfs, &mut caches, file.as_mut_ptr()));
@@ -295,13 +277,7 @@ fn test_compat_minor_bump() {
         LFS_O_RDONLY,
     ));
     assert_eq!(
-        lfs_file_read(
-            &mut lfs,
-            &mut caches,
-            file.as_mut_ptr(),
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            8,
-        ),
+        lfs_file_read(&mut lfs, &mut caches, file.as_mut_ptr(), &mut buf),
         8
     );
     assert_eq!(&buf, b"teeeeest");
